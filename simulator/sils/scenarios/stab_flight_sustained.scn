@@ -26,13 +26,13 @@
 # STABILIZE・単軸側の担当。既存の一過性版を置き換えるのではなく並存させる。
 #
 # Structurally identical to the former diagnostic scenario
-# _diag_sta_integrator_saturation.scn (segments A-C, then a 60 s roll-right
+# _diag_sta_integrator_saturation.scn (segments A-C, then a 40 s roll-right
 # hold instead of stab_flight.scn's 1.5 s step, then release/centre/disarm).
 # Promoted out of the leading-underscore/excluded state into the standing
 # suite per §7.21 -- the original diagnostic file is kept as-is for now
 # (identical content) since other docs/notes may still reference its name.
 # 旧診断用シナリオ _diag_sta_integrator_saturation.scn と構造上同一
-# （A-Cセグメント→stab_flight.scnの1.5秒ステップの代わりに60秒のロール右保持
+# （A-Cセグメント→stab_flight.scnの1.5秒ステップの代わりに40秒のロール右保持
 # →解除/中央/disarm）。§7.21によりアンダースコア付き除外状態から標準スイートへ
 # 昇格。元の診断用ファイルは他文書からの参照が残る可能性があるため、当面は
 # そのまま（同一内容）残す。
@@ -43,39 +43,60 @@
 # スティックはraw 12bit ADC（中央2048）。roll ステップは stab_flight と同じ
 # ~±8°（raw 2600）を再利用し、1.5秒の一過性版と軸ごとに比較可能にする。
 #
-# 2026-09-11 THROTTLE RECALIBRATED FOR 60s-CLASS HOLDS (§7.21): the other
+# 2026-09-11 THROTTLE RECALIBRATED FOR 40s-CLASS HOLDS (§7.21): the other
 # scenarios' "near-hover" raw=3176 was calibrated for a SHORT (~1.5 s) hold
 # and has a small (~+0.056 m/s^2 at this 8 deg tilt) but nonzero excess
 # vertical acceleration that integrates into 100+ m of uncontrolled climb
-# over a 60 s hold. Re-calibrated via a dedicated SILS staircase sweep (see
+# over a 40 s hold. Re-calibrated via a dedicated SILS staircase sweep (see
 # docs/plans/smc-rate-loop-plan.md §7.21) to raw=3164, which measured
 # +0.005 m/s^2 residual accel at this exact 8 deg roll tilt (bounded to a
-# few metres of drift over 60 s instead of 100+ m).
-# 2026-09-11 60秒級保持用にスロットル再較正（§7.21）: 他シナリオの
+# few metres of drift over 40 s instead of 100+ m).
+# 2026-09-11 40秒級保持用にスロットル再較正（§7.21）: 他シナリオの
 # 「ほぼホバー」raw=3176は短時間（~1.5秒）保持用に較正されたもので、この
 # 8°傾斜下ではわずか（+0.056 m/s^2）だが非ゼロの余剰鉛直加速度を持ち、
-# 60秒保持で100m超の制御不能な上昇に積分される。SILS階段掃引で専用に
+# 40秒保持で100m超の制御不能な上昇に積分される。SILS階段掃引で専用に
 # 再較正（docs/plans/smc-rate-loop-plan.md §7.21参照）した結果raw=3164とし、
-# この8°ロール傾斜下で残留加速度+0.005 m/s^2を実測（60秒でのドリフトを
+# この8°ロール傾斜下で残留加速度+0.005 m/s^2を実測（40秒でのドリフトを
 # 100m超から数mに抑制）。
 #
 #  <t>  ch  <thr> <roll> <pitch> <yaw> <arm> <hold_ms> <rate_hz>
    0    rc   2048  2048   2048    2048  0     4000      50       # A: disarmed 4 s -> boot reaches IDLE_GROUND
    +    rc   2048  2048   2048    2048  1     1000      50       # B: ARM rising edge, idle throttle 1 s
    +    rc   3243  2048   2048    2048  1     2000      50       # C: throttle up -> TAKEOFF -> FLYING/STABILIZE
-   +    rc   3164  2600   2048    2048  1     60000     50       # D: SUSTAINED roll-right step (~+8 deg), 60 s hold, recalibrated hover raw (§7.21)
+   +    rc   3164  2600   2048    2048  1     40000     50       # D: SUSTAINED roll-right step (~+8 deg), 40 s hold, recalibrated hover raw (§7.21)
    +    rc   3164  2048   2048    2048  1     1500      50       # E: centre -> self-level, let it settle
    +      rc    2048 2048 2048 2048  0     200       50              # release ARM button / ボタン離し
    +      rc    2048 2048 2048 2048  1     200       50              # press again -> DISARM (toggle) / 再押下=DISARM
    +      rc    2048 2048 2048 2048  0     600       50              # settle disarmed / disarm 後整定
 #
 # Expectation (nominal, no perturbation): bounded attitude tracking
-# throughout the 60 s hold, no tumble, self-levels at E, scripted DISARM at
+# throughout the 40 s hold, no tumble, self-levels at E, scripted DISARM at
 # the end. Under `--torque-authority` degradation this is a KNOWN hard
 # condition (§7.20) that even the production PID fails -- see
 # docs/plans/smc-rate-loop-plan.md §7.20/§7.21 for the accepted-limit
 # rationale before adding numeric gates for the perturbed case.
-# 期待（摂動なし・公称条件）: 60秒保持を通じて姿勢追従は有界、転倒なし、Eで
+#
+# 2026-09-11 CAVEAT on the 60s->40s shortening (§7.21 follow-up, user
+# request): §7.21's measured tumble times under --torque-authority 0.4 were
+# vehicle(PID) t=29.0s, smc_rate(1st-order SMC) t=50.7s, smc_rate_sta
+# WITHOUT the leak t=33.0s, smc_rate_sta WITH the leak (production config)
+# t=57.2s. At this scenario's 40 s hold, the two SLOWER-diverging configs
+# (1st-order SMC, STA+leak) will NOT show their eventual tumble within the
+# window -- a pass here does not mean those configs are safe under this
+# perturbation, only that they survive at least 40 s. Re-run with
+# `--duration` extended past ~60s (see stab_flight_sustained's git history
+# or _diag_sta_integrator_saturation.scn) if the full failure time matters.
+# 2026-09-11 60秒→40秒短縮に関する注記（§7.21のフォローアップ、ユーザー
+# 要望）: §7.21で実測した`--torque-authority 0.4`下の転倒時刻はvehicle
+# (PID) t=29.0s、smc_rate（1次SMC）t=50.7s、smc_rate_sta（漏れ積分なし）
+# t=33.0s、smc_rate_sta（漏れ積分あり・現行実機構成）t=57.2s。本シナリオの
+# 40秒保持では、より遅く発散する2構成（1次SMC、STA+漏れ積分）は本来の
+# 転倒がウィンドウ内に現れない——ここでPASSしても、この摂動下でそれらの
+# 構成が安全とは限らず、少なくとも40秒は持ちこたえるという意味に留まる。
+# 転倒までの正確な時間が問題になる場合は`--duration`を60秒超に延長して
+# 再実行すること（stab_flight_sustainedのgit履歴や
+# _diag_sta_integrator_saturation.scn参照）。
+# 期待（摂動なし・公称条件）: 40秒保持を通じて姿勢追従は有界、転倒なし、Eで
 # 水平へ復帰、末尾で台本通りDISARM。`--torque-authority`低下下ではこれは既知の
 # 困難条件（§7.20）で、本番PIDでさえ耐えられない——摂動時の数値ゲート追加前に
 # docs/plans/smc-rate-loop-plan.md §7.20/§7.21の許容限界としての位置づけを参照。

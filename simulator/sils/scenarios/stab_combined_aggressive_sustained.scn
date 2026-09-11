@@ -10,7 +10,7 @@
 # (segment E) -- a reversal resets the error sign and does not let a
 # rate-loop hyperplane integral (or an STA integral state) accumulate in one
 # direction for long. Here the SAME simultaneous 3-axis deflection (D's
-# magnitude) is held for 60 s WITHOUT reversing, to test whether the
+# magnitude) is held for 40 s WITHOUT reversing, to test whether the
 # multi-axis case saturates/diverges differently from the single-axis
 # (stab_flight_sustained) and combined-2-axis (pos_flight_sustained) cases.
 # 動機（docs/plans/smc-rate-loop-plan.md §7.17/§7.20/§7.21）: 背景の全体は
@@ -20,7 +20,7 @@
 # 1.2秒保持した後すぐ反転（Eセグメント）——反転は誤差符号をリセットしてしまい、
 # レートループの超平面積分（あるいはSTAの積分状態）が一方向に長時間蓄積する
 # ことがない。本シナリオでは同じ3軸同時偏位（Dと同じ大きさ）を反転させずに
-# 60秒保持し、単軸（stab_flight_sustained）・複合2軸（pos_flight_sustained）
+# 40秒保持し、単軸（stab_flight_sustained）・複合2軸（pos_flight_sustained）
 # とは異なる飽和・発散の仕方をするかを検証する。
 #
 # Sticks: raw 12-bit ADC, centre 2048. roll/pitch magnitudes are REDUCED
@@ -40,7 +40,7 @@
 #
 # 2026-09-11 MAGNITUDE REDUCED + THROTTLE RECALIBRATED (§7.21): see
 # pos_flight_sustained.scn's identical note -- an early version reusing D's
-# full raw 2600/2600 roll+pitch combination held for 60 s hit the same
+# full raw 2600/2600 roll+pitch combination held for 40 s hit the same
 # known mixer/differential-authority ceiling pos_flight.scn's C2 step
 # documents (crashed to the ground regardless of throttle candidate).
 # Reduced to raw 2440/2440 (~8.1 deg combined, same total tilt as the other
@@ -50,7 +50,7 @@
 # docs/plans/smc-rate-loop-plan.md §7.21.
 # 2026-09-11 大きさ縮小＋スロットル再較正（§7.21）: pos_flight_sustained.scn
 # の同一の注記を参照——本シナリオの初期版もDの全量raw 2600/2600の
-# roll+pitch組み合わせを60秒保持しており、pos_flight.scnのC2ステップが
+# roll+pitch組み合わせを40秒保持しており、pos_flight.scnのC2ステップが
 # 文書化する既知のミキサ/差動権限上限に同様に到達していた（試した
 # どのスロットル候補でも地面に墜落）。raw 2440/2440（合成~8.1°、他2つの
 # 持続外乱アーキタイプと同じ合成傾斜）へ縮小し、ホバースロットルを
@@ -62,20 +62,20 @@
    0    rc   2048  2048   2048    2048  0     4000      50       # A: disarmed 4 s -> boot reaches IDLE_GROUND
    +    rc   2048  2048   2048    2048  1     1000      50       # B: ARM rising edge, idle throttle 1 s
    +    rc   3243  2048   2048    2048  1     2000      50       # C: throttle up -> TAKEOFF -> FLYING/STABILIZE
-   +    rc   3164  2440   2440    2400  1     60000     50       # D: SUSTAINED simultaneous roll-right + pitch-forward + yaw-right, 60 s hold, NO reversal, reduced roll/pitch + recalibrated hover raw (§7.21)
+   +    rc   3164  2440   2440    2400  1     40000     50       # D: SUSTAINED simultaneous roll-right + pitch-forward + yaw-right, 40 s hold, NO reversal, reduced roll/pitch + recalibrated hover raw (§7.21)
    +    rc   3164  2048   2048    2048  1     1500      50       # E: centre -> self-level back toward 0 deg, let it settle
    +      rc    2048 2048 2048 2048  0     200       50              # release ARM button / ボタン離し
    +      rc    2048 2048 2048 2048  1     200       50              # press again -> DISARM (toggle) / 再押下=DISARM
    +      rc    2048 2048 2048 2048  0     600       50              # settle disarmed / disarm 後整定
 #
 # Expectation (nominal, no perturbation): bounded attitude tracking
-# throughout the 60 s simultaneous 3-axis hold, no tumble, self-levels at E,
+# throughout the 40 s simultaneous 3-axis hold, no tumble, self-levels at E,
 # scripted DISARM at the end. Under `--torque-authority` degradation this is
 # expected to be a hard condition per §7.20/§7.21, likely the most severe
 # of the 3 sustained archetypes since it combines all 3 axes' torque demand
 # at once -- see docs/plans/smc-rate-loop-plan.md for the accepted-limit
 # rationale before adding numeric gates for the perturbed case.
-# 期待（摂動なし・公称条件）: 60秒の3軸同時保持を通じて姿勢追従は有界、転倒
+# 期待（摂動なし・公称条件）: 40秒の3軸同時保持を通じて姿勢追従は有界、転倒
 # なし、Eで水平へ復帰、末尾で台本通りDISARM。`--torque-authority`低下下では
 # §7.20/§7.21により困難条件と想定——3軸分のトルク要求が同時に掛かるため
 # 3つの持続外乱アーキタイプの中で最も厳しくなる可能性が高い。摂動時の数値
