@@ -178,6 +178,51 @@ void AppController::reset()
 
 void AppController::onModeChange(sf::FlightMode new_mode)
 {
+    // pid_.onModeChange() resets PidController's OWN pos_x_/pos_y_/vel_x_/
+    // vel_y_ on a POS_HOLD-boundary transition and re-captures the current
+    // position as the new hold target (capture_pos_ = true) -- see
+    // pid_controller.cpp's onModeChange() comment. But those pos_x_/vel_x_
+    // instances are DEAD CODE here (bypassed by setVelocityLawOverride() in
+    // init()) -- the STA velocity controllers that are ACTUALLY driving the
+    // vehicle, smc_vel_x_/smc_vel_y_, were never reset on a mode change,
+    // only on a full AppController::reset(). That gap meant a freshly
+    // re-captured position target (from PidController) could be fed to a
+    // velocity-loop STA instance still carrying stale integral/z state from
+    // before the transition -- found from real-flight WiFi telemetry
+    // (rapid STABILIZE<->POS_HOLD toggling, docs/plans/
+    // smc-rate-loop-plan.md §7.27) showing rate-tracking error spiking
+    // >10x (to 300-460 deg/s RMSE, peak >1800 deg/s) in the 0.3s right
+    // after each mode transition, vs. 30-40 deg/s RMSE in steady POS_HOLD
+    // flight. Resetting smc_vel_x_/smc_vel_y_ here mirrors what
+    // PidController does for its own (otherwise-unused) vel_x_/vel_y_,
+    // keeping the override's behavior consistent with the delegate it
+    // replaces at the SAME transition boundary.
+    // Rate loop (smc_roll_/smc_pitch_/smc_yaw_) is NOT reset here --
+    // PidController doesn't reset its own rate_roll_/rate_pitch_/rate_yaw_
+    // on a mode change either (the rate loop is the innermost, fastest,
+    // mode-agnostic loop), so this preserves that same design intent.
+    // pid_.onModeChange()はPOS_HOLD境界を跨ぐ遷移でPidController自身の
+    // pos_x_/pos_y_/vel_x_/vel_y_をリセットし、現在位置を新しい保持目標として
+    // 再捕捉する（capture_pos_=true、pid_controller.cppのonModeChange()コメント
+    // 参照）。しかしそのpos_x_/vel_x_インスタンスはここでは**死んだコード**
+    // （init()のsetVelocityLawOverride()で迂回される）——実際に機体を駆動している
+    // STA速度コントローラsmc_vel_x_/smc_vel_y_は、モード切替時には一度も
+    // リセットされておらず、AppController::reset()の全体リセット時のみだった。
+    // このギャップにより、（PidControllerから）新たに再捕捉された位置目標が、
+    // 遷移前の積分/zの古い状態をまだ持ち越したままの速度ループSTAインスタンスへ
+    // 与えられる状況が起きていた——実機飛行のWiFiテレメトリで発見
+    // （STABILIZE⇔POS_HOLDの高速トグル、docs/plans/smc-rate-loop-plan.md
+    // §7.27）：モード遷移直後0.3秒だけレート追従誤差が10倍超に跳ね上がる
+    // （RMSE 300-460°/s、最大1800°/s超）一方、POS_HOLD安定飛行時は30-40°/s
+    // RMSE。ここでsmc_vel_x_/smc_vel_y_をリセットすることで、PidControllerが
+    // 自身の（本来は未使用の）vel_x_/vel_y_に対して行っている挙動を再現し、
+    // 差し替え口の挙動を同じ遷移境界で置き換え先の委譲先と整合させる。
+    // レートループ（smc_roll_/smc_pitch_/smc_yaw_）はここではリセットしない
+    // -- PidController自身もモード切替でrate_roll_/rate_pitch_/rate_yaw_を
+    // リセットしないため（レートループは最内周・最速でモードに依存しない）、
+    // 同じ設計意図を保つ。
+    smc_vel_x_.reset();
+    smc_vel_y_.reset();
     pid_.onModeChange(new_mode);
 }
 

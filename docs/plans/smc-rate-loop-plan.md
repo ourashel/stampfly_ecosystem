@@ -1798,6 +1798,81 @@ tilt_maxは4候補中最小（3.70）——3x以上はdriftをさらに削るが
 シナリオの公称条件はクリアしたが、`smc_rate_sta`と同水準の頑健性検証には
 これらが必要。実機投入判断はそれらを踏まえてから。
 
+### 7.27 `smc_pos_sta`実機投入・初飛行で発見: モード切替時のSTA速度ループ未リセット
+
+ユーザー要望により、ラウンド2ゲインでの追加SILS検証（摂動族・`pos_gain_deficit_*`・
+`pos_flight_sustained`）と実機投入を並行して進めた。
+
+**追加SILS検証結果**（k1=0.6/k2=0.3）:
+- `pos_roll`/`pos_pitch` × `--torque-authority 0.4` / `--motor-delay 15`: 全てPASS
+  （drift 1.7〜1.9、既存6シナリオと同水準）
+- `pos_gain_deficit_reposition_hold40` / `pos_gain_deficit_smallnudge_hold40`:
+  転倒なし（最大roll 1.0〜1.4°、ほぼ無傾斜で安定）
+- `pos_flight_sustained`（nominal/`--torque-authority 0.4`）: 転倒なし
+  （最大roll 24.2°、境界内）
+
+**実機投入**: `sf app build/flash smc_pos_sta`を試みたところ、書き込みが
+2回反応なしで停止（`sf doctor`は全項目OK、読み取り専用の`chip_id`クエリも
+無応答）——USB再接続後の3回目で`Connecting....`→チップ認識→
+`[OK] Flash successful`。原因は物理的な接続状態の問題で、ソフトウェア側の
+問題ではなかった。
+
+**実機初飛行でのユーザーフィードバック**: 「対して安定しないのに操作性が
+悪くなった」——180秒のWiFiテレメトリ（`logs/smc_pos_sta_test.jsonl`）を
+取得し解析。
+
+**原因分析**: `ctrl_ref`パケットの`mode`フィールドを追跡したところ、
+**STABILIZE（mode=1）が一度も0.5秒以上維持されておらず**、180秒間で
+**35回**のモード切替（間隔0.02〜0.6秒、t≈29.5-33s/43s/65s/76-77sに集中）が
+発生していた——ユーザーがPOS_HOLDスイッチを連続的に素早くトグルして
+比較試験していたと推定される。レート追従誤差（`rate_ref`−実測ジャイロ）を
+「切替直後0.3秒以内」と「切替から0.5秒以上安定後」で分離すると:
+
+| 区間 | roll rmse | pitch rmse | yaw rmse |
+|---|---|---|---|
+| POS_HOLD安定後（切替0.5秒超） | 29.9°/s | 36.6°/s | 39.5°/s（rate-onlyのz_leak05テストと同水準） |
+| **切替直後**（0.3秒以内） | **460.8°/s** | **357.4°/s** | **364.9°/s**（最大1800°/s超） |
+
+安定飛行時のレート追従自体は既存のrate-onlyテスト（§7.24）と同水準で
+大きな劣化はなく、**モード切替の瞬間だけ誤差が10倍以上跳ね上がる**ことが
+判明——「操作性が悪くなった」感覚の主因と推定。
+
+**根本原因（コード調査で特定）**: `FlightMode`は`STABILIZE=1 < ALT_HOLD=2
+< POS_HOLD=3`という段階的な包含関係（`>=`比較）で設計されており、
+アーキテクチャ上POS_HOLDはSTABILIZEを置き換えるのではなく**その上に
+位置/速度ループを追加する**構造——ユーザーの疑問「STABILIZE⇔POS_HOLDって
+共存しないの？」への答えは「設計上は共存するはず」。しかし
+`pid_controller.cpp`の`onModeChange()`はPOS_HOLD境界を跨ぐ遷移で
+`pos_x_/pos_y_/vel_x_/vel_y_`（PidController自身の、smc_pos_staでは
+`setVelocityLawOverride()`により**死んだコード**になっている1次PID）を
+リセットし、現在位置を新しい保持目標として再捕捉する（`capture_pos_=true`）。
+一方`AppController::onModeChange()`（smc_pos_sta側）は`pid_.onModeChange()`
+を転送するだけで、**実際に機体を駆動しているSTA速度コントローラ
+`smc_vel_x_`/`smc_vel_y_`は一度もリセットしていなかった**（`AppController::
+reset()`の全体リセット時のみ）。新しく再捕捉された位置目標と、遷移前の
+積分/zの古い状態を持ち越したままの速度ループSTAインスタンス、という
+不整合が切替直後の大きな誤差の原因と推定される。
+
+**修正**: `AppController::onModeChange()`（`firmware/apps/smc_pos_sta/
+app_controller.cpp`）に`smc_vel_x_.reset(); smc_vel_y_.reset();`を追加——
+PidControllerが自身の（本来は未使用の）`vel_x_/vel_y_`に対して行っている
+挙動を、実際に使われているSTAインスタンスにも適用し、差し替え口の挙動を
+委譲先と整合させた。レートループ（`smc_roll_/smc_pitch_/smc_yaw_`）は
+リセット対象外——PidController自身もモード切替でレートループをリセット
+しないため、同じ設計意図を保っている。
+
+**検証**: SILSビルド成功（コンパイルエラーなし）。既存6シナリオ
+（`pos_roll`/`pos_pitch`/`pos_flight`/`pos_yaw`/`pos_reposition`/
+`pos_auto_takeoff`）で再検証——**数値ゲートは修正前と完全一致で回帰なし**
+（単発のモード遷移のみを含むシナリオのため、この修正の効果はモード切替を
+繰り返す条件でのみ現れる想定と整合）。
+
+**残タスク**: 高速モード切替（STABILIZE⇔POS_HOLD連続トグル）を模した
+SILSシナリオが存在しない——今回の実機発見はSILSでは検証できていなかった
+条件。修正の実際の効果（切替直後の誤差スパイク低減）を定量的に確認するには
+専用シナリオの新設が必要。実機での再飛行による確認、またはSILSでの
+高速トグルシナリオ新設のいずれかが次の検証手段となる。
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて
