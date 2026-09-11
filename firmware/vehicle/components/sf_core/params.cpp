@@ -630,16 +630,38 @@ namespace param_vars {
     // 検証課題）。lambda_iは1/ti=0.5で初期化（smc_rate.lambda_iのPI面積分
     // ゲインと同じ「1/T_i」の考え方）。e_reset=5*phi（§3.6の慣例、smc_rateと
     // 同じ）=0.75 m/s。
-    float smc_velx_k        = 0.45f;  // [m/s^2]
-    float smc_velx_eta      = 3.0f;   // [1/s]
-    float smc_velx_phi      = 0.15f;  // [m/s]
+    // Round-2 (2026-09-11, docs/plans/smc-rate-loop-plan.md §7.4): round-1's
+    // eta=3.0 seed (matched to position.vel.kp) saturated duty (1.00, FAIL
+    // pos_flight's <0.9 gate) regardless of k -- a 4-point sweep on
+    // pos_flight (k,eta,phi) = (0.3,1.5,0.2)/(0.2,1.0,0.25)/(0.1,2.5,0.3)/
+    // (0,3.0,0.15) found only (0.2,1.0,0.25) clears ALL 4 gates
+    // (duty_max=0.78, att_rmse=0.51, drift=1.25, tilt=13.9). The pattern: eta
+    // needs to be well BELOW the linear PID's kp=3.0 -- a softer velocity
+    // loop that leans on the switching term k*sat(s/phi) (wider phi=0.25)
+    // rather than a large linear gain, which was what drove duty into
+    // saturation. e_reset rescaled with phi (5*phi convention, SS3.6) ->
+    // 1.25. lambda_i left at round-1's 0.5 (not yet swept).
+    // ラウンド2（2026-09-11、docs/plans/smc-rate-loop-plan.md §7.4）:
+    // ラウンド1のeta=3.0シード（position.vel.kpに合わせた値）はkに関わらず
+    // duty飽和（1.00、pos_flightの<0.9ゲートにFAIL）——pos_flightで
+    // (k,eta,phi)=(0.3,1.5,0.2)/(0.2,1.0,0.25)/(0.1,2.5,0.3)/(0,3.0,0.15)の
+    // 4点スイープを行い、(0.2,1.0,0.25)のみが4ゲート全てをクリア
+    // （duty_max=0.78, att_rmse=0.51, drift=1.25, tilt=13.9）。パターン:
+    // etaは線形PIDのkp=3.0より十分低くする必要がある——duty飽和を招いていた
+    // 大きな線形ゲインでなく、スイッチング項k*sat(s/phi)（広いphi=0.25）に
+    // 寄りかかる柔らかい速度ループの方が良い。e_resetはphiに合わせ再計算
+    // （5*phiの慣例、§3.6）->1.25。lambda_iはラウンド1の0.5のまま
+    // （未スイープ）。
+    float smc_velx_k        = 0.2f;   // [m/s^2] round-2 (was 0.45)
+    float smc_velx_eta      = 1.0f;   // [1/s] round-2 (was 3.0)
+    float smc_velx_phi      = 0.25f;  // [m/s] round-2 (was 0.15)
     float smc_velx_lambda_i = 0.5f;   // [1/s]
-    float smc_velx_e_reset  = 0.75f;  // [m/s]
-    float smc_vely_k        = 0.45f;  // [m/s^2]
-    float smc_vely_eta      = 3.0f;   // [1/s]
-    float smc_vely_phi      = 0.15f;  // [m/s]
+    float smc_velx_e_reset  = 1.25f;  // [m/s] round-2 (was 0.75, = 5*phi)
+    float smc_vely_k        = 0.2f;   // [m/s^2] round-2 (was 0.45)
+    float smc_vely_eta      = 1.0f;   // [1/s] round-2 (was 3.0)
+    float smc_vely_phi      = 0.25f;  // [m/s] round-2 (was 0.15)
     float smc_vely_lambda_i = 0.5f;   // [1/s]
-    float smc_vely_e_reset  = 0.75f;  // [m/s]
+    float smc_vely_e_reset  = 1.25f;  // [m/s] round-2 (was 0.75, = 5*phi)
 
     // Scheduled autotune (solo pilot, hands-free): a single operator cannot type
     // `autotune` mid-flight, so SET these on the GROUND, then arm and fly. After the
@@ -1136,16 +1158,16 @@ static const ParamEntry table[] = {
     // スライディングモード・水平速度ループのゲイン（firmware/apps/smc_pos）
     // -- 初期値の導出は上のparam_varsコメント参照。既定vehicle/smc_rate
     // ビルドでは未使用。
-    {"smc.velx.k",        ParamType::FLOAT, &smc_velx_k,        0.45f, 0.0f, 5.0f,  &notifyControllerReload},
-    {"smc.velx.eta",      ParamType::FLOAT, &smc_velx_eta,      3.0f,  0.0f, 20.0f, &notifyControllerReload},
-    {"smc.velx.phi",      ParamType::FLOAT, &smc_velx_phi,      0.15f, 0.01f, 2.0f, &notifyControllerReload},
+    {"smc.velx.k",        ParamType::FLOAT, &smc_velx_k,        0.2f,  0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.velx.eta",      ParamType::FLOAT, &smc_velx_eta,      1.0f,  0.0f, 20.0f, &notifyControllerReload},
+    {"smc.velx.phi",      ParamType::FLOAT, &smc_velx_phi,      0.25f, 0.01f, 2.0f, &notifyControllerReload},
     {"smc.velx.lambda_i", ParamType::FLOAT, &smc_velx_lambda_i, 0.5f,  0.0f, 5.0f,  &notifyControllerReload},
-    {"smc.velx.e_reset",  ParamType::FLOAT, &smc_velx_e_reset,  0.75f, 0.0f, 5.0f,  &notifyControllerReload},
-    {"smc.vely.k",        ParamType::FLOAT, &smc_vely_k,        0.45f, 0.0f, 5.0f,  &notifyControllerReload},
-    {"smc.vely.eta",      ParamType::FLOAT, &smc_vely_eta,      3.0f,  0.0f, 20.0f, &notifyControllerReload},
-    {"smc.vely.phi",      ParamType::FLOAT, &smc_vely_phi,      0.15f, 0.01f, 2.0f, &notifyControllerReload},
+    {"smc.velx.e_reset",  ParamType::FLOAT, &smc_velx_e_reset,  1.25f, 0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.vely.k",        ParamType::FLOAT, &smc_vely_k,        0.2f,  0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.vely.eta",      ParamType::FLOAT, &smc_vely_eta,      1.0f,  0.0f, 20.0f, &notifyControllerReload},
+    {"smc.vely.phi",      ParamType::FLOAT, &smc_vely_phi,      0.25f, 0.01f, 2.0f, &notifyControllerReload},
     {"smc.vely.lambda_i", ParamType::FLOAT, &smc_vely_lambda_i, 0.5f,  0.0f, 5.0f,  &notifyControllerReload},
-    {"smc.vely.e_reset",  ParamType::FLOAT, &smc_vely_e_reset,  0.75f, 0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.vely.e_reset",  ParamType::FLOAT, &smc_vely_e_reset,  1.25f, 0.0f, 5.0f,  &notifyControllerReload},
     {"autotune.sched.axis",  ParamType::INT,   &autotune_sched_axis,  -1.0f, -1.0f,  2.0f,   nullptr},
     {"autotune.sched.delay", ParamType::FLOAT, &autotune_sched_delay, 20.0f,  3.0f, 120.0f,  nullptr},
     // Autotune sysid results (written by autotune, read-back only). Wide ranges = result store.
