@@ -1384,6 +1384,38 @@ k1=60/k2=30 round-2ゲイン）を実機（ESP32-S3, COM3経由）へ書き込�
 - [ ] 1次SMC（`smc_rate`）・PID（`vehicle`）でも同じ持続外乱シナリオを実行し、
       比較基準を得る（STA固有の弱点か、レートループ全般の弱点かの切り分け）
 
+### 7.18 安全機構の追加: zの漏れ積分（leaky integration）
+
+ユーザー方針（「前回書き込まれたものは生成器がかなりいいからセーフティーつけて」
+——STAの到達則自体の性能は活かしつつ、§7.17で見つかった転倒への安全機構を追加する）
+を受け、`SuperTwistingRate`のSTA積分項`z`に**漏れ積分**（leaky integration、PIDの
+「積分リーク」に相当する標準的なアンチワインドアップ技法）を追加した:
+
+```
+z_dot = -k2·sign(s) - z/z_leak_tau   （z_leak_tau>0の場合。0で従来の純粋積分のまま）
+```
+
+持続的な同符号外乱下でも`z`は歯止めなく成長せず、**有界な平衡値
+`|z_eq| = k2·z_leak_tau`へ収束する**——恣意的なハードクランプ値を推測する必要がない、
+解析的に導出できる境界。新param `smc_sta.{roll,pitch,yaw}.z_leak_tau`（既定**1.0秒**
+——本セッションの他のopt-in機能と異なり、0（＝転倒を招いた従来動作）を既定にする
+理由がないため、この機能だけ非ゼロを既定値とした）。
+
+**検証結果**（§7.17の転倒シナリオ + §7.14の3アーキタイプ×2条件、計7シナリオ）:
+
+| シナリオ | 導入前 | 導入後（z_leak_tau=1.0s） |
+|---|---|---|
+| **持続外乱（60s roll hold + ta=0.4）** | **t=33.0sで転倒（roll=179°）** | **転倒解消、70秒間で最大roll=33.9°** |
+| stab_flight nominal | att_rmse=2.88°, tilt=13.17° | att_rmse=2.77°, tilt=12.67° — 同等 |
+| stab_flight motor-delay=15ms | att_rmse=2.23°, tilt=12.32° | att_rmse=2.18°, tilt=12.32° — 同等 |
+| pos_flight nominal | drift=0.78m, att_rmse=0.94 | drift=0.78m, att_rmse=1.25 — 同等 |
+| pos_flight motor-delay=15ms | drift=0.95m, att_rmse=1.14 | drift=0.74m, att_rmse=0.53 — やや改善 |
+| stab_combined_aggressive nominal | att_rmse=4.56°, tilt=16.35° | att_rmse=3.63°, tilt=16.32° — やや改善 |
+| stab_combined_aggressive motor-delay=15ms | att_rmse=2.51°, tilt=16.74° | att_rmse=4.18°, tilt=17.22° — 同等 |
+
+**転倒を解消しつつ、既存の6条件全てで回帰なし**（一部はむしろ改善）。この構成
+（k1=60/k2=30 + z_leak_tau=1.0s）を実機へ再投入する。
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて

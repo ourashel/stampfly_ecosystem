@@ -97,6 +97,14 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc_sta.yaw.lambda_i",   sta_yaw_.lambda_i);
     sf::params::get_float("smc_sta.yaw.e_reset",    sta_yaw_.e_reset);
 
+    // z leaky-integration safety mechanism -- see smc_rate_sta.hpp's
+    // z_leak_tau field comment and docs/plans/smc-rate-loop-plan.md §7.18.
+    // zの漏れ積分安全機構 -- smc_rate_sta.hppのz_leak_tauフィールドコメントと
+    // docs/plans/smc-rate-loop-plan.md §7.18参照。
+    sf::params::get_float("smc_sta.roll.z_leak_tau",  sta_roll_.z_leak_tau);
+    sf::params::get_float("smc_sta.pitch.z_leak_tau", sta_pitch_.z_leak_tau);
+    sf::params::get_float("smc_sta.yaw.z_leak_tau",   sta_yaw_.z_leak_tau);
+
     // Same physical torque ceiling the PID rate loop uses -- see
     // firmware/apps/smc_rate/app_controller.cpp's loadSmcParams() for the
     // provenance comment (unchanged here).

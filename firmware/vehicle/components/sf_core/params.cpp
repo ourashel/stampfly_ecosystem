@@ -733,6 +733,26 @@ namespace param_vars {
     float smc_sta_yaw_lambda_i   = 1.25f;   // [1/s]
     float smc_sta_yaw_e_reset    = 1.5f;    // [rad/s]
 
+    // z leaky-integration time constant (2026-09-11, docs/plans/
+    // smc-rate-loop-plan.md §7.18 -- safety mechanism added after §7.17's
+    // SILS finding that a sustained same-sign disturbance made z grow
+    // unboundedly and the craft tumbled at t=33s). Default 1.0s (roll/
+    // pitch) -- NOT 0 -- unlike this session's other opt-in features:
+    // z_leak_tau=0 (pure integration, the pre-§7.18 behavior) is exactly
+    // what caused the tumble, so it is not a safe default here. See
+    // smc_rate_sta.hpp's z_trial comment for the derivation and
+    // |z_eq|=k2*z_leak_tau bound.
+    // zの漏れ積分時定数（2026-09-11、docs/plans/smc-rate-loop-plan.md
+    // §7.18 -- §7.17のSILS実測（持続的な同符号外乱でzが歯止めなく成長し
+    // t=33sで機体が転倒）を受けて追加した安全機構）。既定1.0秒
+    // （roll/pitch）—— 0ではない——このセッションの他のopt-in機能と異なり、
+    // z_leak_tau=0（純粋積分、§7.18以前の挙動）こそが転倒を招いた挙動その
+    // ものなので、ここでは安全な既定値にならない。導出と
+    // |z_eq|=k2*z_leak_tauの境界はsmc_rate_sta.hppのz_trialコメント参照。
+    float smc_sta_roll_z_leak_tau  = 1.0f;  // [s]
+    float smc_sta_pitch_z_leak_tau = 1.0f;  // [s]
+    float smc_sta_yaw_z_leak_tau   = 1.0f;  // [s]
+
     // Sliding-mode horizontal-VELOCITY-loop gains (firmware/apps/smc_pos,
     // smc_vel.hpp) -- plugged into PidController's vel_x_/vel_y_ stage via
     // setVelocityLawOverride() (pid_controller.hpp). Unused by the default
@@ -1333,6 +1353,11 @@ static const ParamEntry table[] = {
     {"smc_sta.yaw.phi",        ParamType::FLOAT, &smc_sta_yaw_phi,        0.04f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_sta.yaw.lambda_i",   ParamType::FLOAT, &smc_sta_yaw_lambda_i,   1.25f,  0.0f, 10.0f,   &notifyControllerReload},
     {"smc_sta.yaw.e_reset",    ParamType::FLOAT, &smc_sta_yaw_e_reset,    1.5f,   0.0f, 5.0f,    &notifyControllerReload},
+    // z leaky-integration time constant -- see the param_vars comment above.
+    // zの漏れ積分時定数 -- 上のparam_varsコメント参照。
+    {"smc_sta.roll.z_leak_tau",  ParamType::FLOAT, &smc_sta_roll_z_leak_tau,  1.0f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_sta.pitch.z_leak_tau", ParamType::FLOAT, &smc_sta_pitch_z_leak_tau, 1.0f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_sta.yaw.z_leak_tau",   ParamType::FLOAT, &smc_sta_yaw_z_leak_tau,   1.0f, 0.0f, 10.0f, &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
     // the default vehicle/smc_rate builds.

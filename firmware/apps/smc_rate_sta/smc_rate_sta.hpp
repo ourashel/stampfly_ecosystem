@@ -129,6 +129,7 @@ struct SuperTwistingRate {
     float phi      = 0.02f; // [rad/s] sign() smoothing width (numerical only, NOT the primary chattering fix -- see file header)
     float lambda_i = 0;     // [1/s] PI-surface integral gain on s itself (0 = textbook STA on s=e)
     float e_reset  = 0;     // [rad/s] |e| threshold above which BOTH integral states snap to 0 (0 = disabled)
+    float z_leak_tau = 0;   // [s] leaky-integration time constant for z (0 = disabled, pure integration); see the z_trial comment in compute() for the derivation (docs/plans/smc-rate-loop-plan.md §7.18)
 
     // Output limit [Nm] -- same physical torque ceiling smc_rate.hpp's
     // SlidingModeRate uses.
@@ -186,7 +187,37 @@ struct SuperTwistingRate {
 
         const float s_trial = e + lambda_i * integral_trial;
         const float sign_s_trial = smoothSign(s_trial);
-        const float z_trial = (dt > 0) ? z - k2 * sign_s_trial * dt : z;
+        // Leaky integration of z (opt-in safety mechanism, docs/plans/
+        // smc-rate-loop-plan.md §7.18, added after §7.17's SILS finding: a
+        // SUSTAINED same-sign disturbance made z grow linearly and
+        // unboundedly -- up to ~150-180 before the FIRST e_reset fired --
+        // while u1's sqrt(|s|) term grew to nearly CANCEL z (net torque
+        // stayed small even as z was enormous), so the rate loop never
+        // actually rejected the disturbance; after 3-4 such reset cycles
+        // (~26 s) the craft tumbled. A leaky integrator (a standard anti-
+        // windup technique -- cf. PID "integral leakage"/"false
+        // integration") adds a decay term -z/z_leak_tau, so z settles to a
+        // BOUNDED equilibrium (|z_eq| = k2*z_leak_tau) under a sustained
+        // disturbance instead of growing without limit, without needing a
+        // guessed hard clamp. z_leak_tau=0 (this file's prior behavior)
+        // disables the leak entirely -- pure integration, unchanged unless
+        // an app explicitly sets this parameter.
+        // zの漏れ積分（opt-inの安全機構、docs/plans/smc-rate-loop-plan.md
+        // §7.18、§7.17のSILS実測を受けて追加: 持続的な同符号外乱下でzが
+        // 歯止めなく線形成長し——最初のe_resetが発火するまでに~150-180に
+        // 達し——その間u1の√|s|項がzをほぼ相殺してしまう（zが巨大でも正味
+        // トルクは終始小さいまま）ため、レートループが実質的に外乱を
+        // 抑えられていなかった。約3-4回のリセットサイクル（~26秒）の後、
+        // 機体は転倒した。漏れ積分（標準的なアンチワインドアップ手法 --
+        // PIDの「積分リーク」/「偽積分」に相当）は減衰項-z/z_leak_tauを
+        // 加えることで、持続外乱下でも歯止めなく成長する代わりに
+        // 有界な平衡値（|z_eq|=k2*z_leak_tau）へ収束させる——恣意的な
+        // ハードクランプの推測が不要。z_leak_tau=0（本ファイルの従来動作）
+        // で漏れを完全無効化——appが明示的にこのパラメータを設定しない限り
+        // 純粋な積分のまま、挙動は不変。
+        const float z_trial = (dt > 0)
+            ? z + (-k2 * sign_s_trial - (z_leak_tau > 1.0e-6f ? z / z_leak_tau : 0.0f)) * dt
+            : z;
 
         const float torque_trial = staOutput(e, integral_trial, z_trial);
 
