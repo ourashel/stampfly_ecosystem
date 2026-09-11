@@ -276,7 +276,10 @@ REM   1 = failed (network, checksum, or extraction failure)
 :sf_bootstrap_private_python
 if exist "%SF_HOME%\python\python.exe" (
     set "SF_PBS_EXISTING="
-    for /f "tokens=*" %%v in ('"%SF_HOME%\python\python.exe" -c "import sys; print(sys.version.split()[0])" 2^>nul') do set "SF_PBS_EXISTING=%%v"
+    set "SF_PBS_VERFILE=%TEMP%\sf_pyver_%RANDOM%.tmp"
+    "%SF_HOME%\python\python.exe" -c "import sys; print(sys.version.split()[0])" > "!SF_PBS_VERFILE!" 2>nul
+    if exist "!SF_PBS_VERFILE!" set /p SF_PBS_EXISTING=<"!SF_PBS_VERFILE!"
+    if exist "!SF_PBS_VERFILE!" del /f /q "!SF_PBS_VERFILE!" >nul 2>&1
     if "!SF_PBS_EXISTING!"=="3.12.14" (
         echo [OK] Private Python 3.12.14 already installed at %SF_HOME%\python
         set "PYTHON_CMD=%SF_HOME%\python\python.exe"
@@ -355,7 +358,10 @@ move "%SF_PBS_EXTRACT%\python" "%SF_HOME%\python" >nul
 rmdir /s /q "%SF_PBS_EXTRACT%" >nul 2>&1
 
 set "SF_PBS_NEWVER="
-for /f "tokens=*" %%v in ('"%SF_HOME%\python\python.exe" -c "import sys; print(sys.version.split()[0])" 2^>nul') do set "SF_PBS_NEWVER=%%v"
+set "SF_PBS_VERFILE=%TEMP%\sf_pyver_%RANDOM%.tmp"
+"%SF_HOME%\python\python.exe" -c "import sys; print(sys.version.split()[0])" > "%SF_PBS_VERFILE%" 2>nul
+if exist "%SF_PBS_VERFILE%" set /p SF_PBS_NEWVER=<"%SF_PBS_VERFILE%"
+if exist "%SF_PBS_VERFILE%" del /f /q "%SF_PBS_VERFILE%" >nul 2>&1
 if not "%SF_PBS_NEWVER%"=="3.12.14" (
     echo [ERROR] Private Python bootstrap produced unexpected version: %SF_PBS_NEWVER%
     exit /b 1
