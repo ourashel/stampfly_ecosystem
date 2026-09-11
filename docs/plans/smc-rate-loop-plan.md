@@ -911,6 +911,69 @@ noise n1/n2を解消しきれず既知の課題として残した（§4）のと
 - [ ] 実機投入は本計画§4と同じゲート運用に加え、上記未解決条件がクリアされるまで
       ベンチ/テザー・ACRO限定を強く推奨
 
+### 7.7 motor-delay根本対処: レートループへの無駄時間予測補償器
+
+§7.5で「単純なk/eta/phiスイープでは解決しない」と結論した後、`smc_rate`自身の履歴と
+`docs/architecture/simulation-policy.md`を再確認したところ、motor-delay=15msは
+PID・SMC問わずプロジェクト全体で一貫してFAILしてきた既知の限界（「転倒しない」ことが
+安全性の閾値、ゲート自体はクリアしない）であることが判明した。この前提をユーザーに
+提示した上で、それでも根本設計に進むという判断を得た。
+
+**設計**: レートループの`SlidingModeRate`（`smc_rate.hpp`、`smc_rate`/`smc_pos`共通）に
+無駄時間予測補償器を追加。プラントが「トルク→角加速度=積分器」（追加の1次遅れは
+無視できる、相対次数1の前提と整合）であることを利用し、Smith予測器[R4]
+（O.J.M. Smith, 1957）の積分器プラント特化・簡略版として:
+
+```
+rate_predicted = rate_meas + Σ_{i=t-L}^{t} (torque_i / inertia) * dt
+```
+
+を実装（直近L秒間に自分が出したトルク指令をそのまま角加速度に換算して積算し、実測値へ
+足し込む）。新param`smc.{roll,pitch,yaw}.delay_comp_ms`（既定0=無効、レートループの
+既存挙動を完全に維持——回帰確認済み）。
+
+**効果検証**（`--param smc.{roll,pitch,yaw}.delay_comp_ms=15`で明示的に有効化）:
+
+| シナリオ | 条件 | 補償OFF | 補償ON(15ms) | 判定 |
+|---|---|---|---|---|
+| `pos_flight` (smc_pos) | motor-delay=15ms | drift=4.36 FAIL, tilt=17.28, duty=1.00 FAIL, att_rmse=4.57 | **drift=0.98 PASS**, tilt=13.84, duty=1.00 FAIL, **att_rmse=0.45 PASS** | 4項目中2項目が新規PASS、劇的改善 |
+| `stab_flight` (smc_rate) | motor-delay=15ms | att_rmse=1.04, **tilt=24.06 FAIL**, duty=1.00 | att_rmse=2.21, **tilt=12.34 PASS**, duty=1.00 | シナリオ全体が**12/12 FULL PASS**（従来FAIL） |
+
+**motor-delay=15ms条件に対しては明確かつ劇的な改善**——`smc_rate`自身が§3.3以降
+一貫して解消できなかったFAIL（tilt_max 21-24°台）が、smc_rate・smc_posどちらも
+ゲート内に収まった。
+
+**ただし重要なトレードオフを発見**（既定OFFのまま維持し、常時ONにしなかった理由）:
+補償を有効にした状態で、motor-delayを**注入していない**（実遅れ0の）nominal条件を
+再検証したところ:
+
+| シナリオ | 条件 | 補償OFF（ラウンド2） | 補償ON(15ms) | 判定 |
+|---|---|---|---|---|
+| `pos_flight` (smc_pos) | nominal | drift=1.11, tilt=13.93, duty=0.80, att_rmse=0.61 | drift=1.08, tilt=13.97, duty=0.81, att_rmse=0.72 | ほぼ同等、軽微な悪化のみ |
+| `pos_flight` (smc_pos) | torque-authority=0.4 | duty=0.733 **PASS** | **duty=1.000 FAIL** | **新規退行** |
+| `stab_flight` (smc_rate) | nominal | att_rmse≈1-2°台PASS（履歴） | **att_rmse=5.37 FAIL**（gate<3.0） | **新規・大幅退行** |
+
+**評価**: 15msの無駄時間を「常に存在する」と仮定して予測すると、実際に無駄時間がない
+（または注入量とズレている）条件ではモデル誤差そのものが外乱となり、nominal性能・
+torque-authority摂動への頑健性を明確に悪化させる——**「実在しない遅れを補償しようとする
+ことの副作用」**という、予測型補償器に典型的なトレードオフが実測された。
+simulation-policy.mdの「SILS単独最適化禁止・摂動族全体で悪化させないこと」の原則に
+照らすと、**既定で有効化するのは不適切**——ただし実機は常に何らかの無駄時間
+（実測L≈8.4-14.7ms/軸）を持ち、SILSのnominal（無駄時間0）自体が実機からすれば
+非現実的な条件である、という逆の見方もあり得るため、**既定OFFで維持しつつ、実機投入
+判断はユーザーと個別協議する**こととした。
+
+### 7.8 現状のステータス（最終）
+
+- [x] 無駄時間予測補償器を実装（`smc_rate.hpp`、opt-in、既定OFFで既存挙動を完全維持）
+- [x] motor-delay=15msでの劇的な改善を確認（smc_rate/smc_pos両方）
+- [x] **重要な発見**: 常時ON化はnominal/torque-authority=0.4で新規退行を引き起こす
+      ——単純に既定へ採用せず、opt-inパラメータとして残す
+- [ ] 実機投入時にこの補償器を有効にするかどうかは、実機の実際の無駄時間特性
+      （L≈8.4-14.7ms/軸、経年・個体差で変動しうる）を踏まえてユーザーと協議
+- [ ] noise条件・torque-authority=0.55等、他の摂動との組み合わせでの補償器の効果は
+      未網羅（motor-delayと同時に発生した場合の挙動は未検証）
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて

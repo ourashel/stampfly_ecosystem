@@ -595,6 +595,24 @@ namespace param_vars {
     float smc_pitch_e_reset = 0.75f;  // [rad/s]
     float smc_yaw_e_reset   = 1.5f;   // [rad/s]
 
+    // Dead-time predictor (2026-09-11, docs/plans/smc-rate-loop-plan.md's
+    // motor-delay root-cause work -- see smc_rate.hpp's SlidingModeRate
+    // field comment for the derivation). [ms] for readability (SILS
+    // --motor-delay and the real per-axis system-ID measurements are both
+    // quoted in ms); AppController converts to seconds when loading.
+    // Default 0 = disabled, EXACT existing behavior for smc_rate/smc_pos.
+    // Range ceiling 40ms matches SlidingModeRate::kDelayCompMaxSamples
+    // (16 samples @ 2.5ms).
+    // 無駄時間予測補償器（2026-09-11、docs/plans/smc-rate-loop-plan.mdの
+    // motor-delay根本対処 -- 導出はsmc_rate.hppのSlidingModeRateフィールド
+    // コメント参照）。読みやすさのため[ms]（SILSの--motor-delayも実機系
+    // 同定値もmsで表記される）。AppControllerが読込時に秒へ変換する。
+    // 既定0=無効、smc_rate/smc_posの既存挙動そのまま。上限40msは
+    // SlidingModeRate::kDelayCompMaxSamples（400Hzで16サンプル=40ms）と一致。
+    float smc_roll_delay_comp_ms  = 0.0f;  // [ms]
+    float smc_pitch_delay_comp_ms = 0.0f;  // [ms]
+    float smc_yaw_delay_comp_ms   = 0.0f;  // [ms]
+
     // Sliding-mode horizontal-VELOCITY-loop gains (firmware/apps/smc_pos,
     // smc_vel.hpp) -- plugged into PidController's vel_x_/vel_y_ stage via
     // setVelocityLawOverride() (pid_controller.hpp). Unused by the default
@@ -1152,6 +1170,11 @@ static const ParamEntry table[] = {
     {"smc.roll.e_reset",  ParamType::FLOAT, &smc_roll_e_reset,  0.75f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc.pitch.e_reset", ParamType::FLOAT, &smc_pitch_e_reset, 0.75f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc.yaw.e_reset",   ParamType::FLOAT, &smc_yaw_e_reset,   1.5f,  0.0f, 5.0f, &notifyControllerReload},
+    // Dead-time predictor -- see the param_vars comment above.
+    // 無駄時間予測補償器 -- 初期値の導出は上のparam_varsコメント参照。
+    {"smc.roll.delay_comp_ms",  ParamType::FLOAT, &smc_roll_delay_comp_ms,  0.0f, 0.0f, 40.0f, &notifyControllerReload},
+    {"smc.pitch.delay_comp_ms", ParamType::FLOAT, &smc_pitch_delay_comp_ms, 0.0f, 0.0f, 40.0f, &notifyControllerReload},
+    {"smc.yaw.delay_comp_ms",   ParamType::FLOAT, &smc_yaw_delay_comp_ms,   0.0f, 0.0f, 40.0f, &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
     // the default vehicle/smc_rate builds.

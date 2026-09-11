@@ -103,6 +103,17 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc.yaw.lambda_i", smc_yaw_.lambda_i);
     sf::params::get_float("smc.yaw.e_reset",  smc_yaw_.e_reset);
 
+    // Dead-time predictor -- params are [ms] for readability (matches SILS
+    // --motor-delay / real system-ID units), SlidingModeRate wants [s].
+    // 無駄時間予測補償器 -- paramは読みやすさのため[ms]、SlidingModeRateは[s]。
+    float roll_delay_ms = 0.0f, pitch_delay_ms = 0.0f, yaw_delay_ms = 0.0f;
+    sf::params::get_float("smc.roll.delay_comp_ms",  roll_delay_ms);
+    sf::params::get_float("smc.pitch.delay_comp_ms", pitch_delay_ms);
+    sf::params::get_float("smc.yaw.delay_comp_ms",   yaw_delay_ms);
+    smc_roll_.delay_comp_s  = roll_delay_ms  * 1.0e-3f;
+    smc_pitch_.delay_comp_s = pitch_delay_ms * 1.0e-3f;
+    smc_yaw_.delay_comp_s   = yaw_delay_ms   * 1.0e-3f;
+
     // Share the SAME physical torque ceiling the PID rate loop uses
     // (rate.yaw.max_torque is runtime-tunable; roll/pitch's cap is a fixed
     // PidController constant not exposed as a param -- see

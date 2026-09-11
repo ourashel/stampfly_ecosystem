@@ -129,6 +129,8 @@
  *   [R3] V. Utkin and J. Shi, "Integral sliding mode in systems operating
  *        under uncertainty conditions," Proc. 35th IEEE CDC, Kobe, 1996,
  *        pp. 4591-4596.
+ *   [R4] O. J. M. Smith, "Closer control of loops with dead time,"
+ *        Chemical Engineering Progress, vol. 53, no. 5, pp. 217-219, 1957.
  */
 
 #pragma once
@@ -171,6 +173,60 @@ struct SlidingModeRate {
     float integral    = 0;
     float prev_error  = 0;
 
+    // --- Dead-time predictor (opt-in, docs/plans/smc-rate-loop-plan.md's
+    // motor-delay root-cause work) ---
+    // Compensates a pure transport delay L in the torque->rate path (e.g.
+    // SILS's --motor-delay, or the real hardware's measured per-axis delay,
+    // L~8.4-14.7ms) by predicting the CURRENT rate from the raw measurement
+    // plus the integrated effect of this controller's OWN torque commands
+    // over the last L seconds -- the delayed torque has not fully acted on
+    // the plant yet at the moment it was issued, so replaying its
+    // (torque/inertia)*dt contribution catches the loop up to "as if" there
+    // were no delay:
+    //
+    //   rate_predicted = rate_meas + sum_{i=t-L}^{t} (torque_i/inertia)*dt
+    //
+    // This is a simplified, integrator-plant-specific relative of the Smith
+    // predictor [R4] (O.J.M. Smith, "Closer control of loops with dead
+    // time," Chem. Eng. Progress, 1957): a true Smith predictor differences
+    // a delayed AND an undelayed nominal-model prediction against the real
+    // (delayed) measurement; here, because the rate-loop plant is
+    // essentially a pure integrator (torque->angular accel, negligible
+    // additional lag -- the same relative-degree-1 assumption this file's
+    // header already makes), summing the controller's own recent command
+    // history directly onto the raw measurement plays the same role without
+    // needing a separate plant-lag model. delay_comp_s=0 (default) disables
+    // this entirely -- e is computed from the raw rate_meas exactly as
+    // before, so existing smc_rate/smc_pos behavior is unchanged unless an
+    // app explicitly sets this parameter.
+    // --- 無駄時間予測補償器（opt-in、docs/plans/smc-rate-loop-plan.mdの
+    // motor-delay根本対処の一環） ---
+    // トルク→レート経路の純粋な輸送遅れL（SILSの--motor-delay、または実機の
+    // 軸別実測遅れ L~8.4-14.7ms）を、生の測定値に「直近L秒間に自分が出した
+    // トルク指令の積算効果」を足し込んで現在レートを予測することで補償する
+    // -- 指令した瞬間はまだプラントに完全には効いていないトルクの
+    // (torque/inertia)*dt寄与を再生することで、無駄時間が無かったかのように
+    // ループを追いつかせる:
+    //
+    //   rate_predicted = rate_meas + Σ_{i=t-L}^{t} (torque_i/inertia)*dt
+    //
+    // これはSmith予測器[R4]（O.J.M. Smith, "Closer control of loops with
+    // dead time," Chem. Eng. Progress, 1957）の、積分器プラント特化の簡略版
+    // というべき関係にある: 真のSmith予測器は「遅延ありのノミナルモデル予測」
+    // と「遅延なしのノミナルモデル予測」の差分を実測（遅延あり）と比較するが、
+    // ここではレートループのプラントが本質的に純粋な積分器（トルク→角加速度、
+    // 追加の1次遅れは無視できる -- このファイル冒頭の相対次数1の前提と同じ）
+    // であるため、コントローラ自身の最近の指令履歴を生の測定値へ直接積算する
+    // だけで、別途プラント遅れモデルを持たずに同じ役割を果たす。
+    // delay_comp_s=0（既定）はこれを完全に無効化する -- eは従来どおり生の
+    // rate_measから計算され、appが明示的にこのパラメータを設定しない限り
+    // 既存のsmc_rate/smc_posの挙動は変わらない。
+    static constexpr int   kDelayCompMaxSamples = 16;  // covers up to 40ms @ 400Hz (2.5ms/sample)
+    float delay_comp_s = 0;  // [s] nominal dead time to compensate (0 = disabled)
+    float torque_ring_[kDelayCompMaxSamples] = {};
+    int   torque_ring_idx_   = 0;
+    int   torque_ring_count_ = 0;  // samples filled so far (ramps in at startup/reset)
+
     /// Compute the sliding-mode torque output / スライディングモード・トルク出力を計算
     /// @param rate_sp    Target angular rate [rad/s] / 目標角速度
     /// @param rate_meas  Measured angular rate [rad/s] (bias-corrected gyro) / 測定角速度（バイアス補正済ジャイロ）
@@ -178,7 +234,27 @@ struct SlidingModeRate {
     /// @return           Torque [Nm], clamped to +/-output_limit / トルク [Nm]、+/-output_limit にクランプ
     float compute(float rate_sp, float rate_meas, float dt)
     {
-        const float e = rate_sp - rate_meas;
+        // Dead-time predictor: replace rate_meas with rate_predicted for the
+        // REST of this function (surface, reaching law, anti-windup) when
+        // delay_comp_s > 0. See the field comment above for the derivation.
+        // 無駄時間予測補償器: delay_comp_s>0ならrate_measをrate_predictedへ
+        // 置き換え、この関数の残り（面・到達則・アンチワインドアップ）は
+        // 全てそれを使う。導出は上のフィールドコメント参照。
+        float rate_used = rate_meas;
+        if (delay_comp_s > 1.0e-6f && dt > 0 && inertia > 1.0e-12f) {
+            int n = static_cast<int>(delay_comp_s / dt + 0.5f);
+            if (n > kDelayCompMaxSamples) n = kDelayCompMaxSamples;
+            if (n > torque_ring_count_)   n = torque_ring_count_;
+            float sum_domega = 0.0f;
+            int idx = torque_ring_idx_;
+            for (int i = 0; i < n; ++i) {
+                idx = (idx - 1 + kDelayCompMaxSamples) % kDelayCompMaxSamples;
+                sum_domega += (torque_ring_[idx] / inertia) * dt;
+            }
+            rate_used = rate_meas + sum_domega;
+        }
+
+        const float e = rate_sp - rate_used;
 
         // Trapezoidal trial update of the integral state (mirrors pid.hpp's
         // PID::compute -- "trial" because anti-windup below may reject it).
@@ -258,9 +334,22 @@ struct SlidingModeRate {
 
         prev_error = e;
 
-        const float torque = reachingTorque(e, integral);
-        if (torque >  output_limit) return  output_limit;
-        if (torque < -output_limit) return -output_limit;
+        float torque = reachingTorque(e, integral);
+        if (torque >  output_limit) torque =  output_limit;
+        if (torque < -output_limit) torque = -output_limit;
+
+        // Record this cycle's (already-clamped) torque for the dead-time
+        // predictor's ring buffer, regardless of whether delay_comp_s is
+        // currently enabled -- so switching it on live (param reload) has a
+        // populated history immediately rather than ramping in from zero.
+        // このサイクルの（クランプ済み）トルクを、delay_comp_sが現在有効かに
+        // 関わらず無駄時間予測補償器のring bufferへ記録する -- ライブで
+        // 有効化（paramリロード）した際にゼロから立ち上がるのでなく、
+        // 即座に履歴が埋まっているようにするため。
+        torque_ring_[torque_ring_idx_] = torque;
+        torque_ring_idx_ = (torque_ring_idx_ + 1) % kDelayCompMaxSamples;
+        if (torque_ring_count_ < kDelayCompMaxSamples) ++torque_ring_count_;
+
         return torque;
     }
 
@@ -269,6 +358,9 @@ struct SlidingModeRate {
     {
         integral   = 0;
         prev_error = 0;
+        for (float& t : torque_ring_) t = 0.0f;
+        torque_ring_idx_   = 0;
+        torque_ring_count_ = 0;
     }
 };
 

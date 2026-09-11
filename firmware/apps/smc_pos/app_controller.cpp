@@ -121,6 +121,18 @@ void AppController::loadRateSmcParams()
     sf::params::get_float("smc.yaw.lambda_i", smc_yaw_.lambda_i);
     sf::params::get_float("smc.yaw.e_reset",  smc_yaw_.e_reset);
 
+    // Dead-time predictor -- params are [ms] for readability, SlidingModeRate
+    // wants [s]. See firmware/apps/smc_rate/app_controller.cpp (same pattern).
+    // 無駄時間予測補償器 -- paramは[ms]、SlidingModeRateは[s]。
+    // firmware/apps/smc_rate/app_controller.cppと同じパターン。
+    float roll_delay_ms = 0.0f, pitch_delay_ms = 0.0f, yaw_delay_ms = 0.0f;
+    sf::params::get_float("smc.roll.delay_comp_ms",  roll_delay_ms);
+    sf::params::get_float("smc.pitch.delay_comp_ms", pitch_delay_ms);
+    sf::params::get_float("smc.yaw.delay_comp_ms",   yaw_delay_ms);
+    smc_roll_.delay_comp_s  = roll_delay_ms  * 1.0e-3f;
+    smc_pitch_.delay_comp_s = pitch_delay_ms * 1.0e-3f;
+    smc_yaw_.delay_comp_s   = yaw_delay_ms   * 1.0e-3f;
+
     // Same physical torque ceiling the PID rate loop uses -- see
     // firmware/apps/smc_rate/app_controller.cpp's loadSmcParams() for the
     // provenance comment (unchanged here).
