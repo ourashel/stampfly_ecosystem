@@ -847,14 +847,37 @@ namespace param_vars {
     float smc_pos_sta_yaw_lambda_i   = 1.25f;   // [1/s]
     float smc_pos_sta_yaw_e_reset    = 1.5f;    // [rad/s]
     float smc_pos_sta_yaw_z_leak_tau = 0.5f;    // [s]
-    float smc_pos_sta_velx_k1        = 0.3f;    // [m/s^2 per sqrt(m/s)] seed, see derivation above
-    float smc_pos_sta_velx_k2        = 0.15f;   // [m/s^3] seed, see derivation above
+    // round-2 (docs/plans/smc-rate-loop-plan.md §7.25): the round-1 seed
+    // (k1=0.3/k2=0.15) consistently failed pos_roll/pos_pitch/pos_flight's
+    // horizontal_drift_max gate (~3.0-3.6 vs <3.0) despite the best
+    // tilt_max/att_rmse of all 3 compared controllers. A k1/k2 scale sweep
+    // {2x,3x,4x,6x} on pos_roll found 2x (k1=0.6/k2=0.3) already clears the
+    // gate with margin (drift 1.85) while keeping tilt_max lowest (3.70 vs
+    // 8.62 PID / 6.52 1st-order SMC) -- higher scales reduce drift further
+    // but trade away tilt_max toward the other controllers' worse values.
+    // Re-verified at 2x across pos_roll/pos_pitch/pos_flight/pos_yaw/
+    // pos_reposition/pos_auto_takeoff: all PASS (pos_flight's DISARM/order
+    // FAIL is pos_flight.scn's own pre-existing known issue, present in the
+    // PID baseline too -- unrelated to this app).
+    // ラウンド2（docs/plans/smc-rate-loop-plan.md §7.25）: ラウンド1シード
+    // （k1=0.3/k2=0.15）はpos_roll/pos_pitch/pos_flightのhorizontal_drift_max
+    // ゲートで一貫してFAIL（~3.0-3.6、ゲートは<3.0）——tilt_max/att_rmseは
+    // 比較3者中最良だったにもかかわらず。k1/k2のスケール掃引{2x,3x,4x,6x}を
+    // pos_rollで実施したところ、2x（k1=0.6/k2=0.3）で既に余裕を持って
+    // ゲート通過（drift=1.85）しつつtilt_maxも最小（3.70、PID 8.62・1次SMC
+    // 6.52より良い）——それ以上のスケールはdriftをさらに減らすがtilt_maxが
+    // 他の制御則の悪い値へ近づくトレードオフ。2xをpos_roll/pos_pitch/
+    // pos_flight/pos_yaw/pos_reposition/pos_auto_takeoffで再検証——全てPASS
+    // （pos_flightのDISARM/order FAILはpos_flight.scn自身の既知の既存問題、
+    // PIDベースラインでも同じ——本app固有ではない）。
+    float smc_pos_sta_velx_k1        = 0.6f;    // [m/s^2 per sqrt(m/s)] round-2
+    float smc_pos_sta_velx_k2        = 0.3f;    // [m/s^3] round-2
     float smc_pos_sta_velx_phi       = 0.03f;   // [m/s]
     float smc_pos_sta_velx_lambda_i  = 0.5f;    // [1/s]
     float smc_pos_sta_velx_e_reset   = 1.25f;   // [m/s]
     float smc_pos_sta_velx_z_leak_tau = 0.5f;   // [s]
-    float smc_pos_sta_vely_k1        = 0.3f;    // [m/s^2 per sqrt(m/s)] seed, see derivation above
-    float smc_pos_sta_vely_k2        = 0.15f;   // [m/s^3] seed, see derivation above
+    float smc_pos_sta_vely_k1        = 0.6f;    // [m/s^2 per sqrt(m/s)] round-2
+    float smc_pos_sta_vely_k2        = 0.3f;    // [m/s^3] round-2
     float smc_pos_sta_vely_phi       = 0.03f;   // [m/s]
     float smc_pos_sta_vely_lambda_i  = 0.5f;    // [1/s]
     float smc_pos_sta_vely_e_reset   = 1.25f;   // [m/s]
@@ -1489,14 +1512,14 @@ static const ParamEntry table[] = {
     {"smc_pos_sta.yaw.lambda_i",   ParamType::FLOAT, &smc_pos_sta_yaw_lambda_i,   1.25f,  0.0f, 10.0f,   &notifyControllerReload},
     {"smc_pos_sta.yaw.e_reset",    ParamType::FLOAT, &smc_pos_sta_yaw_e_reset,    1.5f,   0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.yaw.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_yaw_z_leak_tau, 0.5f,   0.0f, 10.0f,   &notifyControllerReload},
-    {"smc_pos_sta.velx.k1",        ParamType::FLOAT, &smc_pos_sta_velx_k1,        0.3f,   0.0f, 5.0f,    &notifyControllerReload},
-    {"smc_pos_sta.velx.k2",        ParamType::FLOAT, &smc_pos_sta_velx_k2,        0.15f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.velx.k1",        ParamType::FLOAT, &smc_pos_sta_velx_k1,        0.6f,   0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.velx.k2",        ParamType::FLOAT, &smc_pos_sta_velx_k2,        0.3f,   0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.velx.phi",       ParamType::FLOAT, &smc_pos_sta_velx_phi,       0.03f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_pos_sta.velx.lambda_i",  ParamType::FLOAT, &smc_pos_sta_velx_lambda_i,  0.5f,   0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.velx.e_reset",   ParamType::FLOAT, &smc_pos_sta_velx_e_reset,   1.25f,  0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.velx.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_velx_z_leak_tau, 0.5f, 0.0f, 10.0f,   &notifyControllerReload},
-    {"smc_pos_sta.vely.k1",        ParamType::FLOAT, &smc_pos_sta_vely_k1,        0.3f,   0.0f, 5.0f,    &notifyControllerReload},
-    {"smc_pos_sta.vely.k2",        ParamType::FLOAT, &smc_pos_sta_vely_k2,        0.15f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.vely.k1",        ParamType::FLOAT, &smc_pos_sta_vely_k1,        0.6f,   0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.vely.k2",        ParamType::FLOAT, &smc_pos_sta_vely_k2,        0.3f,   0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.vely.phi",       ParamType::FLOAT, &smc_pos_sta_vely_phi,       0.03f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_pos_sta.vely.lambda_i",  ParamType::FLOAT, &smc_pos_sta_vely_lambda_i,  0.5f,   0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.vely.e_reset",   ParamType::FLOAT, &smc_pos_sta_vely_e_reset,   1.25f,  0.0f, 5.0f,    &notifyControllerReload},

@@ -1766,6 +1766,38 @@ att_rmseはpos_roll/pos_pitchで3者中最良**（STAの連続到達則による
 `smc_rate_sta`§7.12-7.20と同じ反復チューニングプロセスを想定（1ラウンドで
 決着すると想定しない、という計画時の見立て通り）。
 
+### 7.26 `smc_pos_sta`ラウンド2: 速度ループk1/k2スケール掃引
+
+ラウンド1の単一方向の課題（水平ドリフト抑え込み不足）を受け、`velx/vely.k1/k2`
+を1x(ラウンド1シード)基準に2x/3x/4x/6xでスケールし、`pos_roll`で掃引した:
+
+| スケール | k1/k2 | horizontal_drift_max | tilt_max | att_rmse |
+|---|---|---|---|---|
+| 1x（ラウンド1） | 0.3/0.15 | 3.58 **FAIL** | 3.12 | 0.40 |
+| 2x | 0.6/0.3 | **1.85 PASS** | **3.70** | 0.35 |
+| 3x | 0.9/0.45 | 1.01 PASS | 5.09 | 0.45 |
+| 4x | 1.2/0.6 | 0.80 PASS | 5.66 | 0.48 |
+| 6x | 1.8/0.9 | 0.56 PASS | 7.31 | 0.49 |
+
+**発見**: 2xで既に余裕を持ってゲート通過（drift=1.85 vs ゲート<3.0）しつつ、
+tilt_maxは4候補中最小（3.70）——3x以上はdriftをさらに削るがtilt_maxが
+`vehicle`(8.62)・`smc_pos`(6.52)の値へ近づくトレードオフになる。**2x
+（k1=0.6, k2=0.3）を採用**——ゲート通過とSTAの強み（低tilt_max）の両立点。
+
+2xを`pos_roll`/`pos_pitch`/`pos_flight`/`pos_yaw`/`pos_reposition`/
+`pos_auto_takeoff`の6シナリオ全てで再検証した結果、**数値ゲートは全てPASS**
+（`pos_flight`のみ`DISARM accepted`/順序チェックがFAILするが、これは
+`pos_flight.scn`自身が文書化している既存の既知問題——`vehicle`(PID)ベースライン
+でも同じ理由でFAILしており、`smc_pos_sta`固有の問題ではない）。
+
+`params.cpp`の既定値を`smc_pos_sta.{velx,vely}.{k1,k2}` = `0.6/0.3`
+（旧`0.3/0.15`）へ更新。
+
+**残タスク**: 摂動族（`--torque-authority`/`--motor-delay`/`--noise`）・
+`pos_gain_deficit_*`・`pos_flight_sustained`での検証は未実施——標準`pos_*`
+シナリオの公称条件はクリアしたが、`smc_rate_sta`と同水準の頑健性検証には
+これらが必要。実機投入判断はそれらを踏まえてから。
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて
