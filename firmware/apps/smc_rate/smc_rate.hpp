@@ -233,6 +233,51 @@ struct SlidingModeRate {
     int   torque_ring_idx_   = 0;
     int   torque_ring_count_ = 0;  // samples filled so far (ramps in at startup/reset)
 
+    // --- Sliding-surface dead-band (opt-in, alternative/complementary to the
+    // dead-time predictor above -- docs/plans/smc-rate-loop-plan.md SS7.10,
+    // added 2026-09-11 after review: the predictor requires an accurate
+    // model of the ACTUAL delay L and diverges tumble-class when mismatched
+    // by only ~7-9ms (SS7.7c/7.7e); a dead-band needs no delay knowledge at
+    // all). Shrinks |s| toward zero by up to s_deadband before the boundary
+    // layer sees it:
+    //
+    //   s' = s>s_deadband ? s-s_deadband : (s<-s_deadband ? s+s_deadband : 0)
+    //
+    // Rationale: a delay-induced instability is a GROWING OSCILLATION (a
+    // classical dead-time/phase-margin problem -- the same "growing unstable
+    // limit cycle" signature documented in firmware/vehicle/docs/
+    // poshold_journey.md SS4.2 for the position loop). Small-amplitude s
+    // excursions are exactly where such growth starts; refusing to react to
+    // them (rather than reacting proportionally, as the boundary layer sat()
+    // alone does) removes the energy the reaching law would otherwise feed
+    // back into the growing cycle. This trades a small steady-state
+    // tracking band (|s|<=s_deadband is not actively driven to zero) for
+    // robustness that does not depend on knowing L -- unlike delay_comp_s,
+    // a WRONG s_deadband cannot make the mismatch direction worse, only
+    // under- or over-shrink the dead zone. s_deadband=0 (default) disables
+    // this entirely -- s' = s exactly, unchanged behavior.
+    // --- スライディング面の不感バンド（opt-in、上の無駄時間予測補償器の
+    // 代替/補完、docs/plans/smc-rate-loop-plan.md §7.10、2026-09-11レビュー
+    // を受けて追加: 予測補償器は実際の遅れLの正確なモデルを要求し、想定との
+    // ズレが~7-9msあるだけで転倒級に発散する（§7.7c/7.7e）——不感バンドは
+    // 遅れの知識を一切必要としない）。境界層に渡す前に|s|をs_deadband分だけ
+    // ゼロへ縮める:
+    //
+    //   s' = s>s_deadband ? s-s_deadband : (s<-s_deadband ? s+s_deadband : 0)
+    //
+    // 根拠: 遅れ由来の不安定化は「成長する振動」（古典的な無駄時間・位相余裕
+    // 問題——firmware/vehicle/docs/poshold_journey.md §4.2で位置ループに
+    // ついて記録された「成長する不安定リミットサイクル」と同じ症状）。
+    // 小振幅のs逸脱こそがその成長の起点であり、それに（境界層sat()単体の
+    // ような比例反応でなく）反応しないことで、到達則が成長サイクルへ
+    // フィードバックするエネルギーを絶つ。定常追従に小さな不感帯
+    // （|s|<=s_deadbandは能動的にゼロへ駆動されない）が生じる代償として、
+    // Lを知る必要のない頑健性を得る——delay_comp_sと異なり、s_deadbandを
+    // 間違えても悪化方向にミスマッチすることはなく、不感帯の縮小/過剰の
+    // 違いにしかならない。s_deadband=0（既定）で完全無効——s'=sのまま、
+    // 挙動は不変。
+    float s_deadband = 0;  // [rad/s] dead-zone half-width on s (0 = disabled)
+
     /// Compute the sliding-mode torque output / スライディングモード・トルク出力を計算
     /// @param rate_sp    Target angular rate [rad/s] / 目標角速度
     /// @param rate_meas  Measured angular rate [rad/s] (bias-corrected gyro) / 測定角速度（バイアス補正済ジャイロ）
@@ -281,7 +326,19 @@ struct SlidingModeRate {
         // なるためガードする（params.cppのmin境界でphi>0が保証されるため
         // 通常は発生しない）。
         auto reachingTorque = [this](float e_now, float integ) {
-            const float s = e_now + lambda_i * integ;
+            float s = e_now + lambda_i * integ;
+            // Dead-band (see the s_deadband field comment above): shrink |s|
+            // toward zero by up to s_deadband before anything downstream
+            // (boundary layer, reaching law) sees it. Continuous at the
+            // band edge (no jump), so it composes cleanly with sat(s/phi).
+            // 不感バンド（上のs_deadbandフィールドコメント参照）: 下流
+            // （境界層・到達則）に渡す前に|s|をs_deadband分だけゼロへ縮める。
+            // 帯の境界で連続（跳躍なし）、sat(s/phi)と自然に合成される。
+            if (s_deadband > 1.0e-6f) {
+                if (s > s_deadband)       s -= s_deadband;
+                else if (s < -s_deadband) s += s_deadband;
+                else                      s = 0.0f;
+            }
             float switching = 0.0f;
             if (phi > 1.0e-6f) {
                 switching = s / phi;

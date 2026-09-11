@@ -114,6 +114,12 @@ void AppController::loadSmcParams()
     smc_pitch_.delay_comp_s = pitch_delay_ms * 1.0e-3f;
     smc_yaw_.delay_comp_s   = yaw_delay_ms   * 1.0e-3f;
 
+    // Sliding-surface dead-band -- see smc_rate.hpp's s_deadband field comment.
+    // スライディング面の不感バンド -- smc_rate.hppのs_deadbandフィールドコメント参照。
+    sf::params::get_float("smc.roll.s_deadband",  smc_roll_.s_deadband);
+    sf::params::get_float("smc.pitch.s_deadband", smc_pitch_.s_deadband);
+    sf::params::get_float("smc.yaw.s_deadband",   smc_yaw_.s_deadband);
+
     // Share the SAME physical torque ceiling the PID rate loop uses
     // (rate.yaw.max_torque is runtime-tunable; roll/pitch's cap is a fixed
     // PidController constant not exposed as a param -- see

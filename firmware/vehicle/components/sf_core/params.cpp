@@ -613,6 +613,21 @@ namespace param_vars {
     float smc_pitch_delay_comp_ms = 0.0f;  // [ms]
     float smc_yaw_delay_comp_ms   = 0.0f;  // [ms]
 
+    // Sliding-surface dead-band (2026-09-11, docs/plans/smc-rate-loop-plan.md
+    // §7.10 -- see smc_rate.hpp's SlidingModeRate s_deadband field comment
+    // for the derivation). Delay-agnostic alternative to the predictor
+    // above: does not need to know the actual dead time L, so a wrong value
+    // only under/over-shrinks the dead zone rather than mismatching in a
+    // dangerous direction. Default 0 = disabled, unchanged behavior.
+    // スライディング面の不感バンド（2026-09-11、docs/plans/
+    // smc-rate-loop-plan.md §7.10 -- 導出はsmc_rate.hppのSlidingModeRateの
+    // s_deadbandフィールドコメント参照）。上の予測補償器と異なり実際の遅れL
+    // を知る必要がない -- 値を間違えても不感帯の過小/過大にしかならず、
+    // 危険な方向へミスマッチしない。既定0=無効、挙動は不変。
+    float smc_roll_s_deadband  = 0.0f;  // [rad/s]
+    float smc_pitch_s_deadband = 0.0f;  // [rad/s]
+    float smc_yaw_s_deadband   = 0.0f;  // [rad/s]
+
     // Sliding-mode horizontal-VELOCITY-loop gains (firmware/apps/smc_pos,
     // smc_vel.hpp) -- plugged into PidController's vel_x_/vel_y_ stage via
     // setVelocityLawOverride() (pid_controller.hpp). Unused by the default
@@ -1187,6 +1202,11 @@ static const ParamEntry table[] = {
     {"smc.roll.delay_comp_ms",  ParamType::FLOAT, &smc_roll_delay_comp_ms,  0.0f, 0.0f, 40.0f, &notifyControllerReload},
     {"smc.pitch.delay_comp_ms", ParamType::FLOAT, &smc_pitch_delay_comp_ms, 0.0f, 0.0f, 40.0f, &notifyControllerReload},
     {"smc.yaw.delay_comp_ms",   ParamType::FLOAT, &smc_yaw_delay_comp_ms,   0.0f, 0.0f, 40.0f, &notifyControllerReload},
+    // Sliding-surface dead-band -- see the param_vars comment above.
+    // スライディング面の不感バンド -- 上のparam_varsコメント参照。
+    {"smc.roll.s_deadband",  ParamType::FLOAT, &smc_roll_s_deadband,  0.0f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc.pitch.s_deadband", ParamType::FLOAT, &smc_pitch_s_deadband, 0.0f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc.yaw.s_deadband",   ParamType::FLOAT, &smc_yaw_s_deadband,   0.0f, 0.0f, 5.0f, &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
     // the default vehicle/smc_rate builds.
