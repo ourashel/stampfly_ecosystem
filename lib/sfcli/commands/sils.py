@@ -490,10 +490,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
                         "Default OFF.")
     p.add_argument("--motor-delay", type=float, default=None, metavar="MS",
                    help="motor transport delay in ms (model-match retrofit #1: real-hardware "
-                        "system ID measured L=14.7/8.4/11.0 ms roll/pitch/yaw vs the current "
-                        "SILS's ~0 ms explicit dead time, docs/architecture/simulation-policy.md "
-                        "backlog #1). Inserted in the duty-path before the motor's first-order "
-                        "lag. Default OFF (0 ms, byte-identical clean path).")
+                        "system ID measured L_total=14.4/17.3/10.8 ms roll/pitch/yaw (2-run "
+                        "average, analysis/reports/rate_sysid_reference/reference.json, "
+                        "corrected 2026-09-11 -- an earlier 14.7/8.4/11.0 figure understated "
+                        "pitch by ~2x) vs the current SILS's ~0 ms explicit dead time, "
+                        "docs/architecture/simulation-policy.md backlog #1). Inserted in the "
+                        "duty-path before the motor's first-order lag. Default OFF (0 ms, "
+                        "byte-identical clean path).")
     p.add_argument("--thrust-eff", type=float, default=None, metavar="RATIO",
                    help="override the plant's real-vs-ideal thrust efficiency (Plant::Config::"
                         "thrust_efficiency; scales the MEAN of all 4 motor thrusts, so it cuts "
@@ -1173,9 +1176,13 @@ def run_scenario_with_exe(exe: Path, scenario: Path, args: argparse.Namespace) -
         env["SILS_EMU_TURBULENCE"] = str(tb)
 
     # --motor-delay sets the duty-path transport delay (model-match retrofit #1: real-hw
-    # identified L=14.7/8.4/11.0ms roll/pitch/yaw vs the SILS's current ~0ms explicit dead
-    # time). Default OFF (byte-identical clean path).
-    # --motor-delay で duty 経路の輸送遅れを設定（モデル一致改修#1）。既定 OFF。
+    # identified L_total=14.4/17.3/10.8ms roll/pitch/yaw, 2-run average, see
+    # analysis/reports/rate_sysid_reference/reference.json -- corrected 2026-09-11, an
+    # earlier 14.7/8.4/11.0 figure understated pitch by ~2x -- vs the SILS's current ~0ms
+    # explicit dead time). Default OFF (byte-identical clean path).
+    # --motor-delay で duty 経路の輸送遅れを設定（モデル一致改修#1、実測
+    # L_total=14.4/17.3/10.8ms roll/pitch/yaw、2026-09-11訂正——旧14.7/8.4/11.0は
+    # pitchを約半分に過小評価していた）。既定 OFF。
     md = getattr(args, "motor_delay", None)
     if md is not None:
         env["SILS_EMU_MOTOR_DELAY"] = str(md)

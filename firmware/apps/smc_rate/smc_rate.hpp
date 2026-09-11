@@ -177,7 +177,10 @@ struct SlidingModeRate {
     // motor-delay root-cause work) ---
     // Compensates a pure transport delay L in the torque->rate path (e.g.
     // SILS's --motor-delay, or the real hardware's measured per-axis delay,
-    // L~8.4-14.7ms) by predicting the CURRENT rate from the raw measurement
+    // L_total~10.8-17.3ms, analysis/reports/rate_sysid_reference/reference.json,
+    // corrected 2026-09-11 -- an earlier 8.4-14.7ms figure understated pitch by
+    // ~2x, see docs/plans/smc-rate-loop-plan.md SS7.7e) by predicting the
+    // CURRENT rate from the raw measurement
     // plus the integrated effect of this controller's OWN torque commands
     // over the last L seconds -- the delayed torque has not fully acted on
     // the plant yet at the moment it was issued, so replaying its
@@ -202,7 +205,10 @@ struct SlidingModeRate {
     // --- 無駄時間予測補償器（opt-in、docs/plans/smc-rate-loop-plan.mdの
     // motor-delay根本対処の一環） ---
     // トルク→レート経路の純粋な輸送遅れL（SILSの--motor-delay、または実機の
-    // 軸別実測遅れ L~8.4-14.7ms）を、生の測定値に「直近L秒間に自分が出した
+    // 軸別実測遅れ L_total~10.8-17.3ms、analysis/reports/rate_sysid_reference/
+    // reference.json、2026-09-11訂正——旧8.4-14.7msはpitchを約半分に過小評価
+    // していた、docs/plans/smc-rate-loop-plan.md §7.7e参照）を、生の測定値に
+    // 「直近L秒間に自分が出した
     // トルク指令の積算効果」を足し込んで現在レートを予測することで補償する
     // -- 指令した瞬間はまだプラントに完全には効いていないトルクの
     // (torque/inertia)*dt寄与を再生することで、無駄時間が無かったかのように
