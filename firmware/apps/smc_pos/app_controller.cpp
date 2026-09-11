@@ -158,6 +158,14 @@ void AppController::loadVelSmcParams()
     sf::params::get_float("smc.vely.lambda_i", smc_vel_y_.lambda_i);
     sf::params::get_float("smc.vely.e_reset",  smc_vel_y_.e_reset);
 
+    // Dead-time predictor -- params are [ms], SlidingModeVelocity wants [s].
+    // 無駄時間予測補償器 -- paramは[ms]、SlidingModeVelocityは[s]。
+    float velx_delay_ms = 0.0f, vely_delay_ms = 0.0f;
+    sf::params::get_float("smc.velx.delay_comp_ms", velx_delay_ms);
+    sf::params::get_float("smc.vely.delay_comp_ms", vely_delay_ms);
+    smc_vel_x_.delay_comp_s = velx_delay_ms * 1.0e-3f;
+    smc_vel_y_.delay_comp_s = vely_delay_ms * 1.0e-3f;
+
     // Same physical acceleration ceiling PidController's vel_x_/vel_y_ used
     // before being overridden (gravity_ * max_pos_tilt_, pid_controller.cpp)
     // -- see this file's kMaxPosTilt comment above for why it is duplicated

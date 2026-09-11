@@ -681,6 +681,18 @@ namespace param_vars {
     float smc_vely_lambda_i = 0.5f;   // [1/s]
     float smc_vely_e_reset  = 1.25f;  // [m/s] round-2 (was 0.75, = 5*phi)
 
+    // Dead-time predictor for the velocity-loop SMC (2026-09-11, tried on
+    // user request to check whether compensating both the rate loop AND
+    // this loop helps beyond rate-loop-only compensation -- see
+    // smc_vel.hpp's field comment and docs/plans/smc-rate-loop-plan.md §7.7c
+    // for the hypothesis and results). Default 0 = disabled.
+    // 速度ループSMCの無駄時間予測補償器（2026-09-11、レートループのみの
+    // 補償を超える効果があるかユーザー要請で試行 -- 仮説と結果は
+    // smc_vel.hppのフィールドコメントとdocs/plans/smc-rate-loop-plan.md
+    // §7.7c参照）。既定0=無効。
+    float smc_velx_delay_comp_ms = 0.0f;  // [ms]
+    float smc_vely_delay_comp_ms = 0.0f;  // [ms]
+
     // Scheduled autotune (solo pilot, hands-free): a single operator cannot type
     // `autotune` mid-flight, so SET these on the GROUND, then arm and fly. After the
     // craft has been FLYING for sched_delay seconds, the rate-loop autotune runs
@@ -1191,6 +1203,10 @@ static const ParamEntry table[] = {
     {"smc.vely.phi",      ParamType::FLOAT, &smc_vely_phi,      0.25f, 0.01f, 2.0f, &notifyControllerReload},
     {"smc.vely.lambda_i", ParamType::FLOAT, &smc_vely_lambda_i, 0.5f,  0.0f, 5.0f,  &notifyControllerReload},
     {"smc.vely.e_reset",  ParamType::FLOAT, &smc_vely_e_reset,  1.25f, 0.0f, 5.0f,  &notifyControllerReload},
+    // Dead-time predictor for the velocity loop -- see the param_vars comment above.
+    // 速度ループの無駄時間予測補償器 -- 上のparam_varsコメント参照。
+    {"smc.velx.delay_comp_ms", ParamType::FLOAT, &smc_velx_delay_comp_ms, 0.0f, 0.0f, 40.0f, &notifyControllerReload},
+    {"smc.vely.delay_comp_ms", ParamType::FLOAT, &smc_vely_delay_comp_ms, 0.0f, 0.0f, 40.0f, &notifyControllerReload},
     {"autotune.sched.axis",  ParamType::INT,   &autotune_sched_axis,  -1.0f, -1.0f,  2.0f,   nullptr},
     {"autotune.sched.delay", ParamType::FLOAT, &autotune_sched_delay, 20.0f,  3.0f, 120.0f,  nullptr},
     // Autotune sysid results (written by autotune, read-back only). Wide ranges = result store.

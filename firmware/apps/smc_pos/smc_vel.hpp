@@ -104,6 +104,42 @@ struct SlidingModeVelocity {
     float integral   = 0;
     float prev_error = 0;
 
+    // --- Dead-time predictor (opt-in), same mechanism as SlidingModeRate's
+    // in smc_rate.hpp -- see that struct's field comment for the full
+    // derivation and Smith-predictor [R4] citation. Tried here on the user's
+    // request to check whether compensating BOTH the rate loop and this
+    // velocity loop helps beyond the rate-loop-only compensation validated
+    // in docs/plans/smc-rate-loop-plan.md SS7.7 (that work's own hypothesis
+    // was that fixing the rate loop alone should suffice, since it is
+    // upstream of this loop in the cascade -- this field exists to test
+    // that hypothesis, not because it was assumed necessary).
+    //
+    //   vel_predicted = vel_meas + sum_{i=t-L}^{t} accel_i * dt
+    //
+    // No inertia division needed (unlike the rate loop's torque): the
+    // output IS the acceleration itself, same reasoning as this file's
+    // header note on why no inertia multiplier is needed in the reaching
+    // law either.
+    // --- 無駄時間予測補償器（opt-in）、smc_rate.hppのSlidingModeRateと同じ
+    // 機構 -- 導出とSmith予測器[R4]の出典は同structのフィールドコメント参照。
+    // ユーザーの要請により、レートループのみの補償（docs/plans/
+    // smc-rate-loop-plan.md §7.7で検証済み）を超えて、この速度ループにも
+    // 補償を足すと追加の効果があるかを確認するために試す（その作業自体の
+    // 仮説は「レートループだけ直せば十分なはず（カスケードでこのループより
+    // 上流だから）」であり、本フィールドはその仮説を検証するために存在する
+    // ——必要だと決め打ちしたわけではない）。
+    //
+    //   vel_predicted = vel_meas + Σ_{i=t-L}^{t} accel_i * dt
+    //
+    // 慣性による除算は不要（レートループのトルクと異なり）: 出力そのものが
+    // 加速度であるため——本ファイル冒頭の「到達則に慣性乗数が不要」という
+    // 注記と同じ理由。
+    static constexpr int kDelayCompMaxSamples = 16;  // covers up to 40ms @ 400Hz
+    float delay_comp_s = 0;  // [s] nominal dead time to compensate (0 = disabled)
+    float accel_ring_[kDelayCompMaxSamples] = {};
+    int   accel_ring_idx_   = 0;
+    int   accel_ring_count_ = 0;
+
     /// Compute the sliding-mode acceleration output / スライディングモード・加速度出力を計算
     /// @param vel_sp    Target NED velocity [m/s] / 目標NED速度
     /// @param vel_meas  Measured NED velocity [m/s] (ESKF) / 測定NED速度
@@ -111,7 +147,21 @@ struct SlidingModeVelocity {
     /// @return          Acceleration [m/s^2], clamped to +/-output_limit / 加速度、+/-output_limitにクランプ
     float compute(float vel_sp, float vel_meas, float dt)
     {
-        const float e = vel_sp - vel_meas;
+        float vel_used = vel_meas;
+        if (delay_comp_s > 1.0e-6f && dt > 0) {
+            int n = static_cast<int>(delay_comp_s / dt + 0.5f);
+            if (n > kDelayCompMaxSamples) n = kDelayCompMaxSamples;
+            if (n > accel_ring_count_)    n = accel_ring_count_;
+            float sum_dv = 0.0f;
+            int idx = accel_ring_idx_;
+            for (int i = 0; i < n; ++i) {
+                idx = (idx - 1 + kDelayCompMaxSamples) % kDelayCompMaxSamples;
+                sum_dv += accel_ring_[idx] * dt;
+            }
+            vel_used = vel_meas + sum_dv;
+        }
+
+        const float e = vel_sp - vel_used;
 
         // Trapezoidal trial update of the integral state -- see
         // smc_rate.hpp's compute() for the full anti-windup rationale (this
@@ -160,9 +210,19 @@ struct SlidingModeVelocity {
 
         prev_error = e;
 
-        const float accel = reachingAccel(e, integral);
-        if (accel >  output_limit) return  output_limit;
-        if (accel < -output_limit) return -output_limit;
+        float accel = reachingAccel(e, integral);
+        if (accel >  output_limit) accel =  output_limit;
+        if (accel < -output_limit) accel = -output_limit;
+
+        // Record this cycle's (already-clamped) accel for the dead-time
+        // predictor's ring buffer -- see SlidingModeRate::compute() in
+        // smc_rate.hpp for the identical rationale.
+        // このサイクルの加速度を無駄時間予測補償器のring bufferへ記録する
+        // -- 同じ根拠はsmc_rate.hppのSlidingModeRate::compute()参照。
+        accel_ring_[accel_ring_idx_] = accel;
+        accel_ring_idx_ = (accel_ring_idx_ + 1) % kDelayCompMaxSamples;
+        if (accel_ring_count_ < kDelayCompMaxSamples) ++accel_ring_count_;
+
         return accel;
     }
 
@@ -171,6 +231,9 @@ struct SlidingModeVelocity {
     {
         integral   = 0;
         prev_error = 0;
+        for (float& a : accel_ring_) a = 0.0f;
+        accel_ring_idx_   = 0;
+        accel_ring_count_ = 0;
     }
 };
 
