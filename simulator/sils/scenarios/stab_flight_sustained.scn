@@ -1,0 +1,81 @@
+# stab_flight_sustained.scn — STABILIZE, SUSTAINED single-axis hold
+# (vehicle, Layer 2, sustained-disturbance archetype 1/3)
+# STABILIZE・単軸持続保持（vehicle, Layer 2, 持続外乱アーキタイプ 1/3）
+#
+# Motivation (docs/plans/smc-rate-loop-plan.md §7.17/§7.20/§7.21): every
+# scenario in the regular suite (stab_flight, pos_flight,
+# stab_combined_aggressive) uses only SHORT/TRANSIENT stick inputs (a few
+# seconds). None held a large, constant, single-direction input for tens of
+# seconds. Under `--torque-authority` degradation this transient-only testing
+# missed a real divergence/tumble mode that only appears after ~30+ s of
+# sustained one-directional error -- first found on smc_rate_sta (§7.17),
+# then shown in §7.20 to affect vehicle (PID) and smc_rate (1st-order SMC)
+# too, and even smc_rate_sta itself at gains other than the currently-flashed
+# k1=60/k2=30. This scenario is the STABILIZE/single-axis member of the
+# 3-archetype sustained-disturbance set requested to stand alongside the
+# existing transient versions (not replace them).
+# 動機（docs/plans/smc-rate-loop-plan.md §7.17/§7.20/§7.21）: 既存の標準シナリオ
+# （stab_flight/pos_flight/stab_combined_aggressive）は全て短時間・一過性の
+# スティック入力（数秒）のみを使う。数十秒におよぶ一定方向の大入力の保持は
+# 一度もテストしていなかった。`--torque-authority`低下との組み合わせで、この
+# 一過性入力だけの検証では見逃していた「30秒超の持続的な同符号誤差の後にのみ
+# 現れる発散・転倒モード」が実際に存在した——まずsmc_rate_staで発見（§7.17）、
+# 続いて§7.20でvehicle（PID）・smc_rate（1次SMC）にも波及し、smc_rate_sta自身も
+# 現在実機投入中のk1=60/k2=30以外のゲインでは転倒することが判明。本シナリオは
+# ユーザー要望による「3アーキタイプ全部への持続外乱検証軸追加」のうち、
+# STABILIZE・単軸側の担当。既存の一過性版を置き換えるのではなく並存させる。
+#
+# Structurally identical to the former diagnostic scenario
+# _diag_sta_integrator_saturation.scn (segments A-C, then a 60 s roll-right
+# hold instead of stab_flight.scn's 1.5 s step, then release/centre/disarm).
+# Promoted out of the leading-underscore/excluded state into the standing
+# suite per §7.21 -- the original diagnostic file is kept as-is for now
+# (identical content) since other docs/notes may still reference its name.
+# 旧診断用シナリオ _diag_sta_integrator_saturation.scn と構造上同一
+# （A-Cセグメント→stab_flight.scnの1.5秒ステップの代わりに60秒のロール右保持
+# →解除/中央/disarm）。§7.21によりアンダースコア付き除外状態から標準スイートへ
+# 昇格。元の診断用ファイルは他文書からの参照が残る可能性があるため、当面は
+# そのまま（同一内容）残す。
+#
+# Sticks are raw 12-bit ADC, centre 2048. roll steps reuse stab_flight's
+# ~+-8 deg magnitude (raw 2600) so the sustained result is comparable to the
+# 1.5 s transient version axis-for-axis.
+# スティックはraw 12bit ADC（中央2048）。roll ステップは stab_flight と同じ
+# ~±8°（raw 2600）を再利用し、1.5秒の一過性版と軸ごとに比較可能にする。
+#
+# 2026-09-11 THROTTLE RECALIBRATED FOR 60s-CLASS HOLDS (§7.21): the other
+# scenarios' "near-hover" raw=3176 was calibrated for a SHORT (~1.5 s) hold
+# and has a small (~+0.056 m/s^2 at this 8 deg tilt) but nonzero excess
+# vertical acceleration that integrates into 100+ m of uncontrolled climb
+# over a 60 s hold. Re-calibrated via a dedicated SILS staircase sweep (see
+# docs/plans/smc-rate-loop-plan.md §7.21) to raw=3164, which measured
+# +0.005 m/s^2 residual accel at this exact 8 deg roll tilt (bounded to a
+# few metres of drift over 60 s instead of 100+ m).
+# 2026-09-11 60秒級保持用にスロットル再較正（§7.21）: 他シナリオの
+# 「ほぼホバー」raw=3176は短時間（~1.5秒）保持用に較正されたもので、この
+# 8°傾斜下ではわずか（+0.056 m/s^2）だが非ゼロの余剰鉛直加速度を持ち、
+# 60秒保持で100m超の制御不能な上昇に積分される。SILS階段掃引で専用に
+# 再較正（docs/plans/smc-rate-loop-plan.md §7.21参照）した結果raw=3164とし、
+# この8°ロール傾斜下で残留加速度+0.005 m/s^2を実測（60秒でのドリフトを
+# 100m超から数mに抑制）。
+#
+#  <t>  ch  <thr> <roll> <pitch> <yaw> <arm> <hold_ms> <rate_hz>
+   0    rc   2048  2048   2048    2048  0     4000      50       # A: disarmed 4 s -> boot reaches IDLE_GROUND
+   +    rc   2048  2048   2048    2048  1     1000      50       # B: ARM rising edge, idle throttle 1 s
+   +    rc   3243  2048   2048    2048  1     2000      50       # C: throttle up -> TAKEOFF -> FLYING/STABILIZE
+   +    rc   3164  2600   2048    2048  1     60000     50       # D: SUSTAINED roll-right step (~+8 deg), 60 s hold, recalibrated hover raw (§7.21)
+   +    rc   3164  2048   2048    2048  1     1500      50       # E: centre -> self-level, let it settle
+   +      rc    2048 2048 2048 2048  0     200       50              # release ARM button / ボタン離し
+   +      rc    2048 2048 2048 2048  1     200       50              # press again -> DISARM (toggle) / 再押下=DISARM
+   +      rc    2048 2048 2048 2048  0     600       50              # settle disarmed / disarm 後整定
+#
+# Expectation (nominal, no perturbation): bounded attitude tracking
+# throughout the 60 s hold, no tumble, self-levels at E, scripted DISARM at
+# the end. Under `--torque-authority` degradation this is a KNOWN hard
+# condition (§7.20) that even the production PID fails -- see
+# docs/plans/smc-rate-loop-plan.md §7.20/§7.21 for the accepted-limit
+# rationale before adding numeric gates for the perturbed case.
+# 期待（摂動なし・公称条件）: 60秒保持を通じて姿勢追従は有界、転倒なし、Eで
+# 水平へ復帰、末尾で台本通りDISARM。`--torque-authority`低下下ではこれは既知の
+# 困難条件（§7.20）で、本番PIDでさえ耐えられない——摂動時の数値ゲート追加前に
+# docs/plans/smc-rate-loop-plan.md §7.20/§7.21の許容限界としての位置づけを参照。

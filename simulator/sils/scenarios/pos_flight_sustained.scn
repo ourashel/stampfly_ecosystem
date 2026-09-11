@@ -1,0 +1,94 @@
+# pos_flight_sustained.scn — STABILIZE, SUSTAINED diagonal hold, then
+# POSITION_HOLD recovery (vehicle, Layer 4, sustained-disturbance archetype 2/3)
+# STABILIZE・斜め持続保持→POSITION_HOLD復帰（vehicle, Layer 4, 持続外乱アーキタイプ 2/3）
+#
+# Motivation (docs/plans/smc-rate-loop-plan.md §7.17/§7.20/§7.21): see
+# stab_flight_sustained.scn's header for the full background. This is the
+# COMBINED-AXIS (roll+pitch diagonal) member of the 3-archetype
+# sustained-disturbance set. pos_flight.scn's C2 step is a genuine 2-axis
+# disturbance but only held 0.6 s before POS_HOLD engages and the position/
+# velocity cascade's own dynamics take over -- it never stresses the rate
+# loop's own hyperplane integral/STA-z the way a long single-direction hold
+# does. Here the SAME diagonal stick deflection is held for 60 s in
+# STABILIZE (POS_HOLD not yet engaged) to reproduce the sustained-error
+# condition on a combined axis, then POS_HOLD is engaged afterward to also
+# check whether the position cascade can still recover and arrest the
+# resulting drift once the sustained disturbance is lifted.
+# 動機（docs/plans/smc-rate-loop-plan.md §7.17/§7.20/§7.21）: 背景の全体は
+# stab_flight_sustained.scnのヘッダ参照。本シナリオは3アーキタイプ持続外乱
+# セットのうち複合軸（ロール+ピッチ斜め）担当。pos_flight.scnのC2ステップは
+# 正真正銘の2軸外乱だが保持は0.6秒のみで、その後POS_HOLDが係合し位置/速度
+# カスケード自身の力学が支配的になる——長時間の単一方向保持がレートループ
+# 自身の超平面積分/STAのzに与えるストレスを一度も検証していない。本シナリオ
+# では同じ斜めスティック偏位をSTABILIZE下（POS_HOLD未係合）で60秒保持し、
+# 複合軸での持続誤差条件を再現した後、POS_HOLDを係合させて持続外乱解除後に
+# 位置カスケードがドリフトを止めて回復できるかも併せて確認する。
+#
+# Sticks: raw 12-bit ADC, centre 2048. pos token (12th field) = 1 engages
+# POSITION_HOLD (implies ALTITUDE_HOLD). roll/pitch magnitude is REDUCED
+# from pos_flight.scn's C2 diagonal step (raw 2600/2600, ~+8 deg EACH axis,
+# ~11.3 deg combined) to raw 2440/2440 (~+5.7 deg each axis, ~+8.1 deg
+# combined -- matching stab_flight_sustained's single-axis 8 deg tilt
+# total). This is deliberate, not a simple reuse of C2's magnitude: see the
+# 2026-09-11 note below.
+# スティックはraw 12bit ADC（中央2048）。posトークン(12列目)=1でPOS_HOLD
+# （ALT_HOLD含む）。roll/pitchの大きさはpos_flight.scnのC2斜めステップ
+# （raw 2600/2600、各軸~+8°、合成~11.3°）から**縮小**し、raw 2440/2440
+# （各軸~+5.7°、合成~+8.1°——stab_flight_sustainedの単軸8°傾斜と揃えた）
+# とした。単純にC2の大きさを流用したものではない——理由は下記
+# 2026-09-11の注記を参照。
+#
+# 2026-09-11 MAGNITUDE REDUCED + THROTTLE RECALIBRATED (§7.21): an early
+# version of this scenario reused C2's full raw 2600/2600 (~11.3 deg
+# combined) held for 60 s. A dedicated SILS hover-throttle calibration
+# sweep at that magnitude found the SAME known control-authority ceiling
+# pos_flight.scn's own header already documents for C2 (mixer duty pinned
+# to 1.0, confirmed throttle-independent there) -- the craft crashed to the
+# ground around t=48s regardless of the throttle candidate tried. This is
+# a real, separately-documented mixer/differential-authority limit, not an
+# altitude-calibration problem, and conflating it with the sustained-
+# disturbance test this scenario is meant to isolate would make the result
+# uninterpretable. Reduced to raw 2440/2440 (~8.1 deg combined, same total
+# tilt as the other 2 sustained archetypes) to stay clear of that known
+# ceiling, then re-calibrated hover throttle for THIS magnitude -- since
+# the total tilt (8.1 deg) is within ~0.1 deg of stab_flight_sustained's 8
+# deg, the SAME re-calibrated raw=3164 applies (cos(tilt) vertical-thrust
+# loss depends only on the total tilt angle, not which axis it's split
+# across). See docs/plans/smc-rate-loop-plan.md §7.21.
+# 2026-09-11 大きさ縮小＋スロットル再較正（§7.21）: 本シナリオの初期版は
+# C2の全量raw 2600/2600（合成~11.3°）を60秒保持していた。この大きさで
+# 専用のSILSホバースロットル較正掃引を行ったところ、pos_flight.scn自身の
+# ヘッダに既に文書化されている既知の制御権限上限（ミキサduty=1.0への
+# 張り付き、スロットル非依存と確認済み）に一致する挙動が出た——試した
+# どのスロットル候補でもt≈48s付近で地面に墜落した。これは別途文書化
+# 済みの実在するミキサ/差動権限の限界であり、高度較正の問題ではない。
+# これを本シナリオが切り分けようとしている持続外乱試験と混同すると結果が
+# 解釈不能になる。raw 2440/2440（合成~8.1°、他2つの持続外乱アーキタイプと
+# 同じ合成傾斜）へ縮小し、この大きさで再較正——合成傾斜8.1°は
+# stab_flight_sustainedの8°と0.1°以内のため、同じ再較正済みraw=3164が
+# 適用できる（cos(傾斜)による鉛直推力損失は合成傾斜角にのみ依存し、どの
+# 軸に配分されているかには依存しない）。
+# docs/plans/smc-rate-loop-plan.md §7.21参照。
+#
+#  <t>  ch  <thr> <roll> <pitch> <yaw> <arm> <hold_ms> <rate_hz> <alt> <acro> <pos>
+   0    rc   2048  2048   2048    2048  0     4000      50                       # A: disarmed 4 s -> IDLE_GROUND
+   +    rc   2048  2048   2048    2048  1     1000      50                       # B: ARM, idle 1 s
+   +    rc   3243  2048   2048    2048  1     2000      50                       # C: STABILIZE take-off, climb ~2 s
+   +    rc   3164  2440   2440   2048  1     60000     50                       # D: SUSTAINED diagonal step (roll-right + pitch-fwd ~+5.7 deg/axis, ~8.1 deg combined), 60 s hold, recalibrated hover raw (§7.21), STILL STABILIZE (no pos token)
+   +    rc   2048  2048   2048    2048  1     14000     50        0     0     1  # E: POS_HOLD (pos=1) engaged after the sustained disturbance is lifted -- arrest residual drift + hold 14 s
+   +      rc    2048 2048 2048 2048  0     200       50              # release ARM button / ボタン離し
+   +      rc    2048 2048 2048 2048  1     200       50              # press again -> DISARM (toggle) / 再押下=DISARM
+   +      rc    2048 2048 2048 2048  0     600       50              # settle disarmed / disarm 後整定
+#
+# Expectation (nominal, no perturbation): bounded attitude/altitude
+# throughout the 60 s diagonal hold, no tumble, no ground impact; once E's
+# POS_HOLD engages the position/velocity cascade arrests the accumulated
+# drift and holds. Under `--torque-authority` degradation this is expected
+# to be a hard condition per §7.20/§7.21 -- see
+# docs/plans/smc-rate-loop-plan.md for the accepted-limit rationale before
+# adding numeric gates for the perturbed case.
+# 期待（摂動なし・公称条件）: 60秒の斜め保持を通じて姿勢/高度は有界、転倒
+# なし、地面衝突なし。Eで POS_HOLD 係合後、位置/速度カスケードが蓄積した
+# ドリフトを止めて保持する。`--torque-authority`低下下では§7.20/§7.21により
+# 困難条件と想定——摂動時の数値ゲート追加前にdocs/plans/smc-rate-loop-plan.md
+# の許容限界としての位置づけを参照。
