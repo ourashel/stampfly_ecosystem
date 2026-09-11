@@ -607,14 +607,52 @@ static inline uint32_t millis_now(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
+// モード切替ボタンの最小間隔デバウンス [ms]。メニューナビゲーションの
+// NAV_DEBOUNCE_MS（本ファイル内、メニュー移動で実績のある値）と揃える —
+// 人間の意図的な押下間隔よりは十分短く、機械的なボタン接点のチャタリング
+// （通常数十ms以内）よりは十分長い。
+//
+// 背景（docs/plans/smc-rate-loop-plan.md §7.28/§7.29）: atoms3joy.cpp の
+// joy_update() には既存のボタンデバウンスがあるが、連続2サンプル一致
+// （100Hzポーリングで約10-20ms）で確定する短い閾値のため、劣化・汚れた
+// 接点のチャタリングを除去しきれない可能性がある。ここで PosMode/AltMode
+// の3状態サイクル進行（OFF→ALT_HOLD→POS_HOLD→OFF）に直接効く
+// check_alt_mode_change()/check_control_mode_change() 自体にも独立した
+// 最小間隔ガードを設け、1回の物理押下でチャタリングが複数エッジとして
+// すり抜けてもモードサイクルが複数段一気に進まないようにする。実機
+// クラッシュ（180秒で35回のモード切替、間隔20ms〜0.6秒、ユーザーは一切
+// トグル操作をしていないと確認済み）の根本原因調査から追加。
+// Minimum-interval debounce [ms] for the mode-cycle buttons. Matches this
+// file's existing NAV_DEBOUNCE_MS (menu navigation, an established value) --
+// well below a human's intentional press interval, well above typical
+// mechanical contact chatter (usually tens of ms).
+//
+// Background (docs/plans/smc-rate-loop-plan.md §7.28/§7.29): atoms3joy.cpp's
+// joy_update() already debounces buttons, but with a short threshold (2
+// consecutive matching samples at 100Hz polling, ~10-20ms) that may not
+// fully suppress chatter from a degraded/dirty contact. Adding an
+// independent minimum-interval guard directly in the functions that drive
+// the PosMode/AltMode 3-state cycle (OFF->ALT_HOLD->POS_HOLD->OFF) means
+// even if chatter slips through as multiple edges within one physical
+// press, the mode cycle can't advance more than one step per debounce
+// window. Added after investigating a real-hardware crash (180s with 35
+// mode transitions, 20ms-0.6s apart, confirmed by the user as NOT
+// deliberate switch toggling).
+static constexpr uint32_t kModeButtonDebounceMs = 200;
+
 // 制御モード変更チェック
 static uint8_t check_control_mode_change(void)
 {
     static uint8_t button_state = 0;
+    static uint32_t last_change_ms = 0;
     uint8_t state = 0;
+    uint32_t now = millis_now();
 
     if (joy_get_mode_button() == 1 && button_state == 0) {
-        state = 1;
+        if (now - last_change_ms > kModeButtonDebounceMs) {
+            state = 1;
+            last_change_ms = now;
+        }
         button_state = 1;
     } else if (joy_get_mode_button() == 0 && button_state == 1) {
         button_state = 0;
@@ -627,10 +665,15 @@ static uint8_t check_control_mode_change(void)
 static uint8_t check_alt_mode_change(void)
 {
     static uint8_t button_state = 0;
+    static uint32_t last_change_ms = 0;
     uint8_t state = 0;
+    uint32_t now = millis_now();
 
     if (joy_get_option_button() == 1 && button_state == 0) {
-        state = 1;
+        if (now - last_change_ms > kModeButtonDebounceMs) {
+            state = 1;
+            last_change_ms = now;
+        }
         button_state = 1;
     } else if (joy_get_option_button() == 0 && button_state == 1) {
         button_state = 0;

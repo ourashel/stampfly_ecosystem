@@ -373,10 +373,59 @@ void StateTask(void* pvParameters)
             // 中立 RC が FLYING 到達直後に STABILIZE へ戻し → 推力ゼロ → 墜落）。
             // 飛行中にスイッチを倒せば即座にモードが変わる — パイロット優先 — で、
             // 制御器の「スティックを動かしたら誘導解除」則と同じ思想。
-            sf::FlightMode want = sf::FlightMode::STABILIZE;
-            if (req.pos_hold)      want = sf::FlightMode::POS_HOLD;
-            else if (req.alt_hold) want = sf::FlightMode::ALT_HOLD;
-            else if (req.acro)     want = sf::FlightMode::ACRO;
+            sf::FlightMode want_raw = sf::FlightMode::STABILIZE;
+            if (req.pos_hold)      want_raw = sf::FlightMode::POS_HOLD;
+            else if (req.alt_hold) want_raw = sf::FlightMode::ALT_HOLD;
+            else if (req.acro)     want_raw = sf::FlightMode::ACRO;
+
+            // Debounce want_raw before it reaches the edge/relevel arbitration
+            // below: require kModeDebounceCount CONSECUTIVE PilotRequest packets
+            // to agree before treating a mode as requested. publishPilotRequest()
+            // (sf_command/command.cpp) decodes the flags byte from every packet
+            // with no filtering, and this arbitration block is edge-triggered
+            // (any change is applied immediately, including mid-FLYING) -- so an
+            // upstream glitch (a bouncing switch/button on the transmitter, a
+            // corrupted packet, ...) reaching even ONE packet here previously
+            // fired an immediate, real mode change. Found investigating a real
+            // crash where the pilot never touched the mode switch but the log
+            // showed 35 STABILIZE<->POS_HOLD transitions in 180s (20ms-0.6s
+            // apart) -- docs/plans/smc-rate-loop-plan.md §7.28/§7.29. Count-based
+            // (not time-based) because packet arrival spacing varies by source
+            // (real ESP-NOW / SILS WiFi / API) and req.timestamp doesn't
+            // guarantee a stable rate; "N consecutive" is source-agnostic. This
+            // does NOT touch the edge/relevel arbitration itself (still
+            // edge-only in flight, still re-levels only in IDLE_GROUND) --  only
+            // what counts as a genuine "want" going into it.
+            // want_raw を下のエッジ/再適用調停へ渡す前にデバウンスする:
+            // kModeDebounceCount回「連続」でPilotRequestパケットが一致して初めて
+            // 要求モードとみなす。publishPilotRequest()（sf_command/command.cpp）
+            // は毎パケットのflagsバイトを無フィルタでデコードし、本調停ブロックは
+            // エッジトリガ（変化があれば即座に適用、飛行中も含む）——そのため
+            // 上流の何らかの乱れ（送信機のボタンチャタリング、パケット化け等）が
+            // わずか1パケットでもここに届けば、これまでは即座に実際のモード変更が
+            // 発火していた。パイロットがモードスイッチに一切触れていないのに
+            // 180秒で35回のSTABILIZE⇔POS_HOLD切替（間隔20ms〜0.6秒）が記録された
+            // 実機クラッシュの調査から追加——docs/plans/smc-rate-loop-plan.md
+            // §7.28/§7.29。時間ベースでなく回数ベースにしたのは、パケット到達間隔が
+            // 送信元（実機ESP-NOW/SILS WiFi/API）で変動し、req.timestampも到達間隔の
+            // 一定性を保証しないため——「連続N回」は送信元に依存しない。エッジ/
+            // 再適用の調停ロジック自体（飛行中はエッジのみ、IDLE_GROUNDでのみ
+            // 再適用）は変更しない——調停へ渡す「want」の確定条件だけを変える。
+            static constexpr uint8_t kModeDebounceCount = 3;
+            static sf::FlightMode debounced_want  = sf::FlightMode::STABILIZE;
+            static sf::FlightMode candidate_want  = sf::FlightMode::STABILIZE;
+            static uint8_t         candidate_count = 0;
+            if (want_raw == candidate_want) {
+                if (candidate_count < kModeDebounceCount) ++candidate_count;
+            } else {
+                candidate_want  = want_raw;
+                candidate_count = 1;
+            }
+            if (candidate_count >= kModeDebounceCount) {
+                debounced_want = candidate_want;
+            }
+            const sf::FlightMode want = debounced_want;
+
             static sf::FlightMode prev_want = sf::FlightMode::STABILIZE;
             // RE-LEVEL in IDLE_GROUND: parked and disarmed, the switch position
             // IS the truth. Without this, the crash-return mode reset (ground →
