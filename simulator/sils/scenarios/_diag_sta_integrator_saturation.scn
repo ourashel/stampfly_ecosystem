@@ -1,0 +1,15 @@
+# _diag_sta_integrator_saturation.scn — TEMPORARY diagnostic scenario
+# (docs/plans/smc-rate-loop-plan.md §7.17): sustained roll-step hold, long
+# duration, to measure how long SuperTwistingRate's hyperplane integral
+# and STA integral z take to saturate under torque-authority perturbation.
+# Not part of the regular regression suite (leading underscore).
+#
+#  <t>  ch  <thr> <roll> <pitch> <yaw> <arm> <hold_ms> <rate_hz>
+   0    rc   2048  2048   2048    2048  0     4000      50
+   +    rc   2048  2048   2048    2048  1     1000      50
+   +    rc   3243  2048   2048    2048  1     2000      50
+   +    rc   3176  2600   2048    2048  1     60000     50   # sustained roll-right step, 60 s hold
+   +    rc   3176  2048   2048    2048  1     1500      50
+   +      rc    2048 2048 2048 2048  0     200       50
+   +      rc    2048 2048 2048 2048  1     200       50
+   +      rc    2048 2048 2048 2048  0     600       50

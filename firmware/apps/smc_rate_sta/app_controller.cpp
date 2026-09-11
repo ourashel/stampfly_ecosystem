@@ -17,8 +17,22 @@
 
 #include "app_controller.hpp"
 #include "params.hpp"
+#include "esp_log.h"
 
 namespace sf::app {
+
+// TEMPORARY diagnostic instrumentation (docs/plans/smc-rate-loop-plan.md
+// §7.17): log the roll axis's hyperplane integral (lambda_i*integral term)
+// and the STA's own integral z every kDiagPeriodCycles, to measure the
+// REAL saturation timescale under a sustained disturbance rather than
+// relying on the theoretical estimate alone. Remove after the measurement.
+// 一時的な診断用計装（docs/plans/smc-rate-loop-plan.md §7.17）: roll軸の
+// 超平面積分（lambda_i*integral項）とSTA自身の積分zをkDiagPeriodCyclesごとに
+// ログ出力し、理論見積もりだけに頼らず持続外乱下での実際の飽和時間を測る。
+// 測定後に削除する。
+static const char* kDiagTag = "STA_DIAG";
+static constexpr int kDiagPeriodCycles = 100;  // 0.25 s @ 400 Hz
+static int diag_counter_ = 0;
 
 // X-quad spec inertia Ixx/Iyy/Izz [kg*m^2] -- same value and same caveat as
 // firmware/apps/smc_rate/app_controller.cpp's kInertia.
@@ -51,6 +65,16 @@ sf::ControlOutput AppController::compute(
     output.torque[0] = sta_roll_.compute(output.rate_ref[0], state.angular_rate[0], dt);
     output.torque[1] = sta_pitch_.compute(output.rate_ref[1], state.angular_rate[1], dt);
     output.torque[2] = sta_yaw_.compute(output.rate_ref[2], state.angular_rate[2], dt);
+
+    // TEMPORARY diagnostic -- see the file-header comment above.
+    // 一時的な診断 -- ファイル冒頭のコメント参照。
+    if (++diag_counter_ >= kDiagPeriodCycles) {
+        diag_counter_ = 0;
+        const float e = output.rate_ref[0] - state.angular_rate[0];
+        const float s = e + sta_roll_.lambda_i * sta_roll_.integral;
+        ESP_LOGI(kDiagTag, "roll e=%.4f integ=%.4f z=%.4f s=%.4f torque=%.6f",
+                 e, sta_roll_.integral, sta_roll_.z, s, output.torque[0]);
+    }
 
     return output;
 }
