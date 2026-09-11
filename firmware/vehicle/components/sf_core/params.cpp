@@ -779,6 +779,87 @@ namespace param_vars {
     float smc_sta_pitch_z_leak_tau = 0.5f;  // [s]
     float smc_sta_yaw_z_leak_tau   = 1.0f;  // [s] -- untested, see note above
 
+    // smc_pos_sta gains (firmware/apps/smc_pos_sta, sliding_mode_sta.hpp's
+    // generic SuperTwisting struct, shared by 3 rate axes + 2 velocity axes
+    // -- docs/plans/smc-rate-loop-plan.md §7 / §7.11-7.24 for the STA design
+    // and §7.9 for why the ORIGINAL 1st-order velocity-loop SMC (smc_pos)
+    // was shelved, which this app reconsiders using STA instead). Own,
+    // independent key space from smc_sta.*/smc.velx.*/smc.vely.* -- unused
+    // by the default vehicle/smc_rate/smc_rate_sta/smc_pos builds.
+    //
+    // SEED VALUES ONLY, NOT YET SILS-TUNED (2026-09-11, just implemented --
+    // same status smc_rate_sta's own round-1 seed had before §7.12-7.20's
+    // multi-round tuning). Rate axes: copied directly from smc_rate_sta's
+    // CURRENT (already multi-round-tuned) values -- reusing a proven
+    // starting point rather than re-deriving from scratch. Velocity axes:
+    // derived by applying the SAME ratio the rate loop's 1st-order-SMC ->
+    // STA transition used (k1/eta_1st ~= 60/180 ~= 0.33, k2/eta_1st ~=
+    // 30/180 ~= 0.167, phi ratio ~= 0.02/0.15 ~= 0.133) to the EXISTING
+    // 1st-order velocity-loop SMC's k/eta/phi (smc.velx.k=0.2,
+    // smc.velx.eta=1.0, smc.velx.phi=0.25) -- k1~=0.33*1.0~=0.3,
+    // k2~=0.167*1.0~=0.15, phi~=0.25*0.133~=0.03 (rounded). lambda_i/
+    // e_reset carried over unchanged from the 1st-order velocity design
+    // (0.5/1.25) since those didn't change between smc_rate's 1st-order and
+    // smc_rate_sta's STA design either. z_leak_tau seeded at 0.5s (matches
+    // smc_rate_sta's tuned roll/pitch value) for all 5 axes -- enabled from
+    // the start (see sliding_mode_sta.hpp's header for why, unlike
+    // smc_rate_sta's history of adding it only after §7.17's tumble).
+    // EXPECT MULTIPLE SILS TUNING ROUNDS before any real-hardware
+    // consideration, matching smc_rate_sta's own §7.11-7.20 process.
+    // smc_pos_staのゲイン（firmware/apps/smc_pos_sta、sliding_mode_sta.hppの
+    // 汎用SuperTwisting構造体、レート3軸+速度2軸で共有 -- docs/plans/
+    // smc-rate-loop-plan.md §7・§7.11-7.24がSTA設計、§7.9が元の1次速度ループ
+    // SMC（smc_pos）を見送った理由——本appはSTAで再検討する）。
+    // smc_sta.*/smc.velx.*/smc.vely.*とは独立したキー空間——既定vehicle/
+    // smc_rate/smc_rate_sta/smc_posビルドでは未使用。
+    //
+    // シード値のみ、SILS未チューニング（2026-09-11、実装直後——
+    // smc_rate_sta自身の§7.12-7.20の複数ラウンドチューニング前のラウンド1
+    // シードと同じ位置づけ）。レート軸: smc_rate_staの現行値（複数ラウンド
+    // 調整済み）をそのまま流用——ゼロから再導出せず実績ある出発点を再利用。
+    // 速度軸: レートループの1次SMC→STA移行で使った同じ比率
+    // （k1/eta_1次~=60/180~=0.33、k2/eta_1次~=30/180~=0.167、
+    // phi比~=0.02/0.15~=0.133）を既存1次速度ループSMCのk/eta/phi
+    // （smc.velx.k=0.2, smc.velx.eta=1.0, smc.velx.phi=0.25）に適用して算出
+    // ——k1~=0.33*1.0~=0.3、k2~=0.167*1.0~=0.15、phi~=0.25*0.133~=0.03
+    // （四捨五入）。lambda_i/e_resetは1次速度設計（0.5/1.25）からそのまま
+    // 引き継ぎ（smc_rateの1次設計→smc_rate_staのSTA設計間でも変えなかった
+    // ため）。z_leak_tauは5軸とも0.5s（smc_rate_staのroll/pitch調整済み値と
+    // 同じ）で最初から有効（sliding_mode_sta.hppのヘッダ参照——
+    // smc_rate_staが§7.17の転倒後に初めて追加した経緯とは異なる）。実機投入を
+    // 検討する前に複数ラウンドのSILSチューニングを想定する（smc_rate_sta
+    // 自身の§7.11-7.20と同じプロセス）。
+    float smc_pos_sta_roll_k1        = 60.0f;   // [rad/s^2 per sqrt(rad/s)] seed = smc_rate_sta current
+    float smc_pos_sta_roll_k2        = 30.0f;   // [rad/s^3] seed = smc_rate_sta current
+    float smc_pos_sta_roll_phi       = 0.02f;   // [rad/s]
+    float smc_pos_sta_roll_lambda_i  = 6.0f;    // [1/s]
+    float smc_pos_sta_roll_e_reset   = 0.75f;   // [rad/s]
+    float smc_pos_sta_roll_z_leak_tau = 0.5f;   // [s]
+    float smc_pos_sta_pitch_k1       = 60.0f;   // [rad/s^2 per sqrt(rad/s)] seed = smc_rate_sta current
+    float smc_pos_sta_pitch_k2       = 30.0f;   // [rad/s^3] seed = smc_rate_sta current
+    float smc_pos_sta_pitch_phi      = 0.02f;   // [rad/s]
+    float smc_pos_sta_pitch_lambda_i = 6.0f;    // [1/s]
+    float smc_pos_sta_pitch_e_reset  = 0.75f;   // [rad/s]
+    float smc_pos_sta_pitch_z_leak_tau = 0.5f;  // [s]
+    float smc_pos_sta_yaw_k1         = 15.2f;   // [rad/s^2 per sqrt(rad/s)] seed = smc_rate_sta current
+    float smc_pos_sta_yaw_k2         = 7.4f;    // [rad/s^3] seed = smc_rate_sta current
+    float smc_pos_sta_yaw_phi        = 0.04f;   // [rad/s]
+    float smc_pos_sta_yaw_lambda_i   = 1.25f;   // [1/s]
+    float smc_pos_sta_yaw_e_reset    = 1.5f;    // [rad/s]
+    float smc_pos_sta_yaw_z_leak_tau = 0.5f;    // [s]
+    float smc_pos_sta_velx_k1        = 0.3f;    // [m/s^2 per sqrt(m/s)] seed, see derivation above
+    float smc_pos_sta_velx_k2        = 0.15f;   // [m/s^3] seed, see derivation above
+    float smc_pos_sta_velx_phi       = 0.03f;   // [m/s]
+    float smc_pos_sta_velx_lambda_i  = 0.5f;    // [1/s]
+    float smc_pos_sta_velx_e_reset   = 1.25f;   // [m/s]
+    float smc_pos_sta_velx_z_leak_tau = 0.5f;   // [s]
+    float smc_pos_sta_vely_k1        = 0.3f;    // [m/s^2 per sqrt(m/s)] seed, see derivation above
+    float smc_pos_sta_vely_k2        = 0.15f;   // [m/s^3] seed, see derivation above
+    float smc_pos_sta_vely_phi       = 0.03f;   // [m/s]
+    float smc_pos_sta_vely_lambda_i  = 0.5f;    // [1/s]
+    float smc_pos_sta_vely_e_reset   = 1.25f;   // [m/s]
+    float smc_pos_sta_vely_z_leak_tau = 0.5f;   // [s]
+
     // Sliding-mode horizontal-VELOCITY-loop gains (firmware/apps/smc_pos,
     // smc_vel.hpp) -- plugged into PidController's vel_x_/vel_y_ stage via
     // setVelocityLawOverride() (pid_controller.hpp). Unused by the default
@@ -1384,6 +1465,42 @@ static const ParamEntry table[] = {
     {"smc_sta.roll.z_leak_tau",  ParamType::FLOAT, &smc_sta_roll_z_leak_tau,  0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_sta.pitch.z_leak_tau", ParamType::FLOAT, &smc_sta_pitch_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_sta.yaw.z_leak_tau",   ParamType::FLOAT, &smc_sta_yaw_z_leak_tau,   1.0f, 0.0f, 10.0f, &notifyControllerReload},
+    // smc_pos_sta gains (firmware/apps/smc_pos_sta) -- see the param_vars
+    // comment above for the seed derivation. Unused by the default vehicle/
+    // smc_rate/smc_rate_sta/smc_pos builds.
+    // smc_pos_staのゲイン（firmware/apps/smc_pos_sta）-- シード値の導出は
+    // 上のparam_varsコメント参照。既定vehicle/smc_rate/smc_rate_sta/smc_pos
+    // ビルドでは未使用。
+    {"smc_pos_sta.roll.k1",        ParamType::FLOAT, &smc_pos_sta_roll_k1,        60.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_sta.roll.k2",        ParamType::FLOAT, &smc_pos_sta_roll_k2,        30.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_sta.roll.phi",       ParamType::FLOAT, &smc_pos_sta_roll_phi,       0.02f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_pos_sta.roll.lambda_i",  ParamType::FLOAT, &smc_pos_sta_roll_lambda_i,  6.0f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_pos_sta.roll.e_reset",   ParamType::FLOAT, &smc_pos_sta_roll_e_reset,   0.75f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.roll.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_roll_z_leak_tau, 0.5f, 0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_pos_sta.pitch.k1",       ParamType::FLOAT, &smc_pos_sta_pitch_k1,       60.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_sta.pitch.k2",       ParamType::FLOAT, &smc_pos_sta_pitch_k2,       30.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_sta.pitch.phi",      ParamType::FLOAT, &smc_pos_sta_pitch_phi,      0.02f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_pos_sta.pitch.lambda_i", ParamType::FLOAT, &smc_pos_sta_pitch_lambda_i, 6.0f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_pos_sta.pitch.e_reset",  ParamType::FLOAT, &smc_pos_sta_pitch_e_reset,  0.75f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.pitch.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_pitch_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_sta.yaw.k1",         ParamType::FLOAT, &smc_pos_sta_yaw_k1,         15.2f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_sta.yaw.k2",         ParamType::FLOAT, &smc_pos_sta_yaw_k2,         7.4f,   0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_sta.yaw.phi",        ParamType::FLOAT, &smc_pos_sta_yaw_phi,        0.04f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_pos_sta.yaw.lambda_i",   ParamType::FLOAT, &smc_pos_sta_yaw_lambda_i,   1.25f,  0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_pos_sta.yaw.e_reset",    ParamType::FLOAT, &smc_pos_sta_yaw_e_reset,    1.5f,   0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.yaw.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_yaw_z_leak_tau, 0.5f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_pos_sta.velx.k1",        ParamType::FLOAT, &smc_pos_sta_velx_k1,        0.3f,   0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.velx.k2",        ParamType::FLOAT, &smc_pos_sta_velx_k2,        0.15f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.velx.phi",       ParamType::FLOAT, &smc_pos_sta_velx_phi,       0.03f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_pos_sta.velx.lambda_i",  ParamType::FLOAT, &smc_pos_sta_velx_lambda_i,  0.5f,   0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.velx.e_reset",   ParamType::FLOAT, &smc_pos_sta_velx_e_reset,   1.25f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.velx.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_velx_z_leak_tau, 0.5f, 0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_pos_sta.vely.k1",        ParamType::FLOAT, &smc_pos_sta_vely_k1,        0.3f,   0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.vely.k2",        ParamType::FLOAT, &smc_pos_sta_vely_k2,        0.15f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.vely.phi",       ParamType::FLOAT, &smc_pos_sta_vely_phi,       0.03f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_pos_sta.vely.lambda_i",  ParamType::FLOAT, &smc_pos_sta_vely_lambda_i,  0.5f,   0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.vely.e_reset",   ParamType::FLOAT, &smc_pos_sta_vely_e_reset,   1.25f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_pos_sta.vely.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_vely_z_leak_tau, 0.5f, 0.0f, 10.0f,   &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
     // the default vehicle/smc_rate builds.

@@ -1714,6 +1714,58 @@ smc_rate_sta -m`）が必要。ユーザーの判断を仰いだ上で実施す�
 意図的に再現したものではない点は同じ注意が必要——それでもSILSでの
 ストレス試験（§7.23）と実機飛行の両方で有意な改善が確認できた。
 
+### 7.25 位置制御SMCの再検討: `smc_pos_sta`新設・ラウンド1結果
+
+ユーザーが実機飛行データの水平位置・高度のばらつきを見て「もっと良くしたい」と
+発言、§7.9で見送った位置制御SMC化を**STA（2次スライディングモード）で再検討**
+する方針を選択した。実装中の設計レビューでユーザーから「SMC提供クラスを用意する
+方がいいのでは？」という指摘を受け、レート軸（トルク出力）と速度軸（加速度出力）
+を1つの汎用構造体`SuperTwisting`（`output_scale`パラメータで出力乗数の有無を
+切り替え）に統合する設計へ変更した。
+
+**新規アプリ`firmware/apps/smc_pos_sta`**（`smc_pos`をベースに新設）:
+- `sliding_mode_sta.hpp`: 汎用`SuperTwisting`構造体1つ（`smc_rate_sta.hpp`の
+  `SuperTwistingRate`を`output_scale`で一般化）——レート3軸
+  （`output_scale`=軸慣性）・速度2軸（`output_scale`=既定1.0）の計5インスタンスを
+  同じ構造体から生成
+- z漏れ積分は最初から有効（既定`z_leak_tau=0.5s`、5軸とも）——`smc_rate_sta`が
+  §7.17の転倒を経験してから追加した経緯とは異なり、同じ構造的リスクが最初から
+  分かっているため
+- 無駄時間予測補償器は非搭載（§7.9の見送り理由の1つがこの機構の安全マージン
+  不足だったため、意図的に除外）
+- 新paramキー空間`smc_pos_sta.{roll,pitch,yaw,velx,vely}.*`（計30個、
+  `smc_sta.*`/`smc.velx.*`とは独立）。レート軸は`smc_rate_sta`の現行チューニング
+  済み値をそのまま流用、速度軸は「レートループの1次SMC→STA移行で使った比率を
+  既存1次速度ループSMCの値に適用」という手順でシード（k1≈0.3, k2≈0.15,
+  phi≈0.03、詳細は`params.cpp`のコメント参照）——**いずれもSILS未チューニングの
+  出発点**
+
+SILSビルド成功（`sf sils build --target apps/smc_pos_sta`、コンパイルエラーなし）。
+
+**ラウンド1結果**（`vehicle`=PID / `smc_pos`=1次SMC / `smc_pos_sta`=STA未調整シード）:
+
+| シナリオ | vehicle(PID) | smc_pos(1次SMC) | smc_pos_sta(STA、未調整) |
+|---|---|---|---|
+| `pos_roll` | drift=0.56/tilt=8.62/att_rmse=0.70 **PASS** | drift=0.67/tilt=6.52/att_rmse=0.26 **PASS** | drift=3.58 **FAIL**/tilt=**3.12**/att_rmse=0.40 |
+| `pos_pitch` | drift=0.60/tilt=9.28/att_rmse=0.69 **PASS** | drift=0.68/tilt=6.27/att_rmse=0.21 **PASS** | drift=3.37 **FAIL**/tilt=**2.86**/att_rmse=0.37 |
+| `pos_flight` | drift=0.33/tilt=11.1/duty=1.0 **FAIL**（既知問題、pos_flight.scn記載） | drift=1.11/tilt=13.9/duty=0.80（DISARM以外PASS） | drift=3.10 **FAIL**/tilt=**14.1**/duty=0.71 |
+
+（`horizontal_drift_max`ゲートは全シナリオ<3.0、`tilt_max`は太字が3者中最良）
+
+**発見**: クラッシュ・転倒は一切なし——初回シードとして安全。**tilt_max・
+att_rmseはpos_roll/pos_pitchで3者中最良**（STAの連続到達則による滑らかな
+姿勢追従がレートループ経由で確認できる、`smc_rate_sta`と同じ効果がここでも
+再現）。一方**水平ドリフトの抑え込みだけが3シナリオ中3つとも一貫してゲート
+未達**（3.0前後で頭打ち）——速度ループのゲイン（k1=0.3/k2=0.15、未調整シード）
+が弱すぎることを示す**単一方向の明確なチューニング信号**であり、原因不明の
+複雑な問題ではない。`pos_flight`のvehicle(PID)自体も既知の問題
+（duty=1.0張り付き、pos_flight.scn自身が文書化）でFAILしており、
+`smc_pos_sta`固有の問題ではない。
+
+**次ラウンド方針**: `smc_pos_sta.velx/vely.k1/k2`を増やす方向でSILS再探索——
+`smc_rate_sta`§7.12-7.20と同じ反復チューニングプロセスを想定（1ラウンドで
+決着すると想定しない、という計画時の見立て通り）。
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて
