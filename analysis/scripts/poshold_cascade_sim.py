@@ -110,13 +110,23 @@ class PID:
 
 def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
                       vel_gains=VEL_GAINS, pos_gains=POS_GAINS,
-                      T=40.0, x0=0.03, dt=DT, verbose_every=None):
+                      T=40.0, x0=0.03, dt=DT, verbose_every=None,
+                      att_est_delay=0.0, att_est_gain=1.0):
     """Full 4-stage nonlinear discrete-time POS_HOLD cascade, roll/Y axis only.
 
     position -> velocity -> attitude -> rate -> (motor lag + dead time) ->
     angular_accel -> rate -> angle -> (g*sin) -> lateral accel -> velocity ->
     position. Setpoints all zero (hold); x0 = initial position offset [m]
     (the "few-cm nudge" from pos_gain_deficit_smallnudge_hold40.scn).
+
+    att_est_delay/att_est_gain: optional attitude-ESTIMATOR stage between the
+    true physical roll and the value fed to the attitude PID (roll_est =
+    delay(roll, att_est_delay) * att_est_gain), modeling the ESKF's own
+    attitude-estimate dynamics -- directly measured from trajectory.csv's
+    roll vs roll_est columns (§7.30続報4: ~40ms lag, ~0.71 amplitude ratio
+    at the observed oscillation frequency) rather than assumed. Default OFF
+    (0 delay, unity gain -- the attitude PID sees the true roll exactly, as
+    in all earlier passes of this script).
 
     Returns dict of time series (t, roll_sp, roll, rate_sp, rate, vy_sp, vy, py).
     """
@@ -128,6 +138,8 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
     n = int(T / dt)
     ndelay = max(1, int(round(L_SILS / dt)))
     torque_buf = [0.0] * ndelay
+    ndelay_est = max(1, int(round(att_est_delay / dt))) if att_est_delay > 0 else 1
+    roll_est_buf = [0.0] * ndelay_est
 
     # plant state
     py = x0          # lateral position [m]
@@ -150,7 +162,11 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
         ay_ned = vel_pid.compute(vy_sp, vy, dt)
         roll_sp = ay_ned / G
         roll_sp = max(-MAX_POS_TILT, min(MAX_POS_TILT, roll_sp))
-        rate_sp = att_pid.compute(roll_sp, roll, dt)
+        # attitude-loop feedback: the ESKF estimate (delayed+attenuated true
+        # roll), not the true roll directly -- see att_est_delay/att_est_gain.
+        roll_est_buf.append(roll)
+        roll_est = roll_est_buf.pop(0) * att_est_gain
+        rate_sp = att_pid.compute(roll_sp, roll_est, dt)
         torque_cmd = rate_pid.compute(rate_sp, rate, dt)
 
         # ---- rate-loop plant: torque -> [dead time] -> [motor lag] -> I*accel ----
