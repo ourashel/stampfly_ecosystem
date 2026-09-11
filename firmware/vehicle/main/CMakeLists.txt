@@ -6,6 +6,23 @@
 set(SF_APP_SRCS "")
 set(SF_APP_INCS "")
 if(SF_APP_DIR)
+    # Normalize to forward slashes (CMake's canonical path form) BEFORE any
+    # use below. On Windows, SF_APP_DIR arrives as a native backslash path;
+    # left as-is it breaks BOTH the CONFIGURE_DEPENDS glob's generated
+    # VerifyGlobs.cmake AND esp-idf's own component.cmake include-dir
+    # foreach() ("Invalid character escape '\U'" from "\Users\...") -- same
+    # root cause already fixed once in simulator/sils/CMakeLists.txt
+    # (docs/plans/smc-rate-loop-plan.md's install/SILS-bugfix history); this
+    # is the real-hardware (idf_component_register) counterpart of that fix.
+    # フォワードスラッシュ（CMakeの正規パス形式）へ、下で使う前に正規化する。
+    # Windowsでは SF_APP_DIR がネイティブなバックスラッシュパスで渡ってくる。
+    # そのままだとCONFIGURE_DEPENDSのglobが生成するVerifyGlobs.cmakeと、
+    # esp-idf自身のcomponent.cmakeのインクルードディレクトリforeach()の
+    # 両方が壊れる（"\Users\..."の"\U"由来の "Invalid character escape
+    # '\U'"）——simulator/sils/CMakeLists.txtで一度修正済みの同じ根本原因
+    # （docs/plans/smc-rate-loop-plan.mdのinstall/SILSバグ修正履歴）。これは
+    # その実機（idf_component_register）版の対応する修正。
+    file(TO_CMAKE_PATH "${SF_APP_DIR}" SF_APP_DIR)
     file(GLOB SF_APP_SRCS CONFIGURE_DEPENDS "${SF_APP_DIR}/*.cpp")
     if(NOT SF_APP_SRCS)
         message(FATAL_ERROR "SF_APP_DIR=${SF_APP_DIR} contains no *.cpp")

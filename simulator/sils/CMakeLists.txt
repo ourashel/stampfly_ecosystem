@@ -323,6 +323,27 @@ if(SILS_BUILD_EMU)
   # ため影響を受けない — workshop は常に既定のアプリフックを使う。
   set(EMU_VEHICLE_SRCS ${EMU_FW_SRCS})
   if(SF_APP_DIR)
+    # Normalize to forward slashes (CMake's canonical path form) BEFORE using
+    # SF_APP_DIR in the CONFIGURE_DEPENDS glob below. sils.py passes it as a
+    # native Windows path (backslashes); CMake's glob re-check writes that
+    # path verbatim into a generated CMakeFiles/VerifyGlobs.cmake, whose own
+    # .cmake-file parser treats backslash as an escape character --
+    # "\Users\..." contains "\U", not a valid escape, so the regenerated
+    # script fails to parse ("Invalid character escape '\U'") on the very
+    # next build. file(GLOB ...) without CONFIGURE_DEPENDS (the real-hardware
+    # firmware/vehicle/main/CMakeLists.txt SF_APP_DIR glob) never re-embeds
+    # the path into a re-parsed script, so it never hit this.
+    # 下のCONFIGURE_DEPENDS付きglobで使う前に、SF_APP_DIRをフォワードスラッシュ
+    # （CMakeの正規パス形式）に正規化する。sils.pyはこれをネイティブWindows
+    # パス（バックスラッシュ）で渡すが、CMakeのglob再チェックはそのパスを
+    # 生成物のCMakeFiles/VerifyGlobs.cmakeへそのまま埋め込み、その.cmake
+    # ファイル自体のパーサはバックスラッシュをエスケープ文字として扱う ——
+    # 「\Users\...」には有効なエスケープでない「\U」が含まれるため、次回
+    # ビルド時に再生成スクリプトがパース失敗する（"Invalid character escape
+    # '\U'"）。CONFIGURE_DEPENDS無しのfile(GLOB ...)（実機ファームの
+    # firmware/vehicle/main/CMakeLists.txtのSF_APP_DIR glob）はパスを
+    # 再パースされるスクリプトへ埋め込み直さないため、この問題は起きない。
+    file(TO_CMAKE_PATH "${SF_APP_DIR}" SF_APP_DIR)
     list(FILTER EMU_VEHICLE_SRCS EXCLUDE REGEX "/sf_app_hooks/app_default\\.cpp$")
     file(GLOB SF_APP_SRCS CONFIGURE_DEPENDS "${SF_APP_DIR}/*.cpp")
     if(NOT SF_APP_SRCS)
