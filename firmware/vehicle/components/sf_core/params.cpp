@@ -628,6 +628,86 @@ namespace param_vars {
     float smc_pitch_s_deadband = 0.0f;  // [rad/s]
     float smc_yaw_s_deadband   = 0.0f;  // [rad/s]
 
+    // Super-twisting rate-loop gains (firmware/apps/smc_rate_sta,
+    // smc_rate_sta.hpp) -- tried 2026-09-11 against the still-unresolved
+    // motor-delay=15ms tilt_max FAIL (docs/plans/smc-rate-loop-plan.md
+    // §7.11). Unused by vehicle/smc_rate/smc_pos.
+    //
+    // Seed derivation (NOT YET SILS-validated -- seed values only):
+    // matched to smc_rate's own round-5 first-order design (k/eta/phi) so
+    // u1=k1*sqrt(|s|) reaches roughly the same torque at s=phi_old as the
+    // old k*sat(1)+eta*phi_old did: k1 = (k+eta*phi_old)/sqrt(phi_old).
+    //   roll/pitch: (40+180*0.15)/sqrt(0.15) = 66.25/0.387 ~ 171 -> 170
+    //   yaw:        (7.3+54*0.3)/sqrt(0.3) = 23.5/0.548 ~ 43
+    // k2 seeded at k1/2 (a common starting ratio; Levant/Moreno-Osorio's
+    // own sufficient conditions need a disturbance-derivative bound we do
+    // not have -- SILS will show whether this needs to shift).
+    // phi here is NOT smc_rate's boundary layer (STA's u1 already vanishes
+    // continuously at s=0) -- it is a small numerical-only smoothing width
+    // for the discrete-time sign() evaluations, seeded an order of
+    // magnitude below the old phi (0.02/0.02/0.04 vs 0.15/0.15/0.3).
+    // lambda_i/e_reset carried over unchanged from smc_rate's round-5
+    // values -- same PI-surface role (steady-bias rejection / large-
+    // transient integral reset), independent of STA's own phi.
+    // スーパーツイスティング・レートループのゲイン（firmware/apps/
+    // smc_rate_sta, smc_rate_sta.hpp）-- 2026-09-11、未解決のmotor-delay=
+    // 15msでのtilt_max FAILに対して試行（docs/plans/smc-rate-loop-plan.md
+    // §7.11）。vehicle/smc_rate/smc_posでは未使用。
+    //
+    // 初期値の導出（SILS未検証 -- あくまで初期値）: smc_rateのラウンド5
+    // 一次設計（k/eta/phi）に合わせた——u1=k1*sqrt(|s|)がs=phi_old時に
+    // 旧k*sat(1)+eta*phi_oldとほぼ同じトルクに達するよう
+    // k1=(k+eta*phi_old)/sqrt(phi_old)で算出:
+    //   roll/pitch: (40+180*0.15)/sqrt(0.15) = 66.25/0.387 ~ 171 -> 170
+    //   yaw:        (7.3+54*0.3)/sqrt(0.3) = 23.5/0.548 ~ 43
+    // k2はk1/2で初期化（よくある出発比。Levant/Moreno-Osorio自身の十分条件
+    // は外乱導関数の有界値を要求するが未知——SILSでこの比を動かす必要が
+    // あるか分かる）。ここでのphiはsmc_rateの境界層ではない（STAのu1は
+    // s=0で既に連続的に消える）——離散時間sign()評価のための純粋に数値的な
+    // 平滑化幅で、旧phiより一桁小さく初期化（0.02/0.02/0.04 vs
+    // 0.15/0.15/0.3）。lambda_i/e_resetはsmc_rateのラウンド5の値をそのまま
+    // 流用——PI面の役割（定常バイアス除去/大過渡での積分リセット）は
+    // STA自身のphiとは独立。
+    // Round-1 tuning (2026-09-11, docs/plans/smc-rate-loop-plan.md §7.11-7.12):
+    // seed k1=170 fixed motor-delay=15ms's tilt_max (21.58deg, still short of
+    // the <18deg gate) but a sweep found k1=120/k2=60 clears it cleanly
+    // (14.90deg) at the cost of att_rmse regressing across nominal/torque-
+    // authority/noise (2.5-3deg baseline -> 3-5.7deg). k1=140/k2=70 is the
+    // balance point: BOTH nominal (att_rmse=2.74, first FULL PASS since
+    // section 3.3) AND motor-delay=15ms (att_rmse=0.99, tilt_max=17.19,
+    // first FULL PASS ever on this condition) clear all 3 gates
+    // simultaneously. Remaining FAILs (torque-authority=0.4 att_rmse=3.34
+    // mild, noise n1 att_rmse=5.24) match the SAME already-accepted, non-
+    // catastrophic limitation class documented for smc_rate's own PID/
+    // first-order-SMC baselines -- not a new regression. Yaw scaled by the
+    // same 140/170 ratio (untested directly, no yaw-specific sweep done).
+    // ラウンド1チューニング（2026-09-11、docs/plans/smc-rate-loop-plan.md
+    // §7.11-7.12）: シードk1=170はmotor-delay=15msのtilt_maxを改善したが
+    // （21.58°、<18°ゲート未達）、スイープの結果k1=120/k2=60が明確にクリア
+    // （14.90°）——ただしnominal/torque-authority/noiseでatt_rmseが悪化
+    // （2.5-3°基準→3-5.7°）する代償あり。k1=140/k2=70がバランス点:
+    // nominal（att_rmse=2.74、§3.3以降初のフルPASS）とmotor-delay=15ms
+    // （att_rmse=0.99, tilt_max=17.19、この条件で史上初のフルPASS）の
+    // どちらも3ゲート同時にクリア。残るFAIL（torque-authority=0.4の
+    // att_rmse=3.34軽微、noise n1の5.24）はsmc_rate自身のPID/1次SMC基準で
+    // 既に受容済みの同種の限界であり、新規退行ではない。yawは140/170と
+    // 同じ比でスケール（yaw固有のスイープは未実施、未検証）。
+    float smc_sta_roll_k1        = 140.0f;  // [rad/s^2 per sqrt(rad/s)] round-1 (was 170 seed)
+    float smc_sta_roll_k2        = 70.0f;   // [rad/s^3] round-1 (was 85 seed)
+    float smc_sta_roll_phi       = 0.02f;   // [rad/s]
+    float smc_sta_roll_lambda_i  = 6.0f;    // [1/s]
+    float smc_sta_roll_e_reset   = 0.75f;   // [rad/s]
+    float smc_sta_pitch_k1       = 140.0f;  // [rad/s^2 per sqrt(rad/s)] round-1 (was 170 seed)
+    float smc_sta_pitch_k2       = 70.0f;   // [rad/s^3] round-1 (was 85 seed)
+    float smc_sta_pitch_phi      = 0.02f;   // [rad/s]
+    float smc_sta_pitch_lambda_i = 6.0f;    // [1/s]
+    float smc_sta_pitch_e_reset  = 0.75f;   // [rad/s]
+    float smc_sta_yaw_k1         = 35.4f;   // [rad/s^2 per sqrt(rad/s)] round-1, scaled by 140/170 (was 43 seed, untested for yaw)
+    float smc_sta_yaw_k2         = 17.3f;   // [rad/s^3] round-1, scaled by 140/170 (was 21 seed, untested for yaw)
+    float smc_sta_yaw_phi        = 0.04f;   // [rad/s]
+    float smc_sta_yaw_lambda_i   = 1.25f;   // [1/s]
+    float smc_sta_yaw_e_reset    = 1.5f;    // [rad/s]
+
     // Sliding-mode horizontal-VELOCITY-loop gains (firmware/apps/smc_pos,
     // smc_vel.hpp) -- plugged into PidController's vel_x_/vel_y_ stage via
     // setVelocityLawOverride() (pid_controller.hpp). Unused by the default
@@ -1207,6 +1287,27 @@ static const ParamEntry table[] = {
     {"smc.roll.s_deadband",  ParamType::FLOAT, &smc_roll_s_deadband,  0.0f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc.pitch.s_deadband", ParamType::FLOAT, &smc_pitch_s_deadband, 0.0f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc.yaw.s_deadband",   ParamType::FLOAT, &smc_yaw_s_deadband,   0.0f, 0.0f, 5.0f, &notifyControllerReload},
+    // Super-twisting rate-loop gains (firmware/apps/smc_rate_sta) -- see
+    // the param_vars comment above for the seed derivation. Unused by
+    // vehicle/smc_rate/smc_pos.
+    // スーパーツイスティング・レートループのゲイン（firmware/apps/
+    // smc_rate_sta）-- 初期値の導出は上のparam_varsコメント参照。
+    // vehicle/smc_rate/smc_posでは未使用。
+    {"smc_sta.roll.k1",        ParamType::FLOAT, &smc_sta_roll_k1,        140.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.roll.k2",        ParamType::FLOAT, &smc_sta_roll_k2,        70.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.roll.phi",       ParamType::FLOAT, &smc_sta_roll_phi,       0.02f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_sta.roll.lambda_i",  ParamType::FLOAT, &smc_sta_roll_lambda_i,  6.0f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_sta.roll.e_reset",   ParamType::FLOAT, &smc_sta_roll_e_reset,   0.75f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_sta.pitch.k1",       ParamType::FLOAT, &smc_sta_pitch_k1,       140.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.pitch.k2",       ParamType::FLOAT, &smc_sta_pitch_k2,       70.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.pitch.phi",      ParamType::FLOAT, &smc_sta_pitch_phi,      0.02f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_sta.pitch.lambda_i", ParamType::FLOAT, &smc_sta_pitch_lambda_i, 6.0f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_sta.pitch.e_reset",  ParamType::FLOAT, &smc_sta_pitch_e_reset,  0.75f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_sta.yaw.k1",         ParamType::FLOAT, &smc_sta_yaw_k1,         35.4f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.yaw.k2",         ParamType::FLOAT, &smc_sta_yaw_k2,         17.3f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.yaw.phi",        ParamType::FLOAT, &smc_sta_yaw_phi,        0.04f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_sta.yaw.lambda_i",   ParamType::FLOAT, &smc_sta_yaw_lambda_i,   1.25f,  0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_sta.yaw.e_reset",    ParamType::FLOAT, &smc_sta_yaw_e_reset,    1.5f,   0.0f, 5.0f,    &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
     // the default vehicle/smc_rate builds.
