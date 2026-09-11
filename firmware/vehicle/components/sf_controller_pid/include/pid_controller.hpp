@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include "controller.hpp"
 #include "pid.hpp"
 #include "sf_math.hpp"
@@ -33,6 +35,29 @@ namespace sf {
 class PidController : public IController {
 public:
     void init();
+
+    /// Optional override for the horizontal velocity-loop law (NED velocity
+    /// error -> NED acceleration). nullptr (default) = the existing vel_x_/
+    /// vel_y_ PID, so the standard `vehicle` build's behavior is byte-for-byte
+    /// unchanged. An app's AppController may call setVelocityLawOverride() in
+    /// its own init() to plug in an alternative law (e.g. SMC) while
+    /// PidController still owns everything AROUND it (position-loop, capture/
+    /// reposition, guidance, trim, takeoff/landing phase orchestration) —
+    /// same "differential-swap" pattern smc_rate used at rate_ref/torque, one
+    /// stage further out. See computePositionHold() for the call site and
+    /// docs/plans/smc-rate-loop-plan.md §7 for the design rationale.
+    /// 水平速度ループ則の任意差し替え口（NED速度誤差→NED加速度）。既定nullptrなら
+    /// 既存vel_x_/vel_y_ PIDのまま — 標準vehicleビルドの挙動は1バイトも変わらない。
+    /// appのAppControllerが自身のinit()でsetVelocityLawOverride()を呼び、代替則
+    /// （例: SMC）を注入できる。PidControllerはその周辺（位置ループ・捕捉/再配置・
+    /// 誘導・トリム・離着陸フェーズの調停）を引き続き一手に担う — smc_rateが
+    /// rate_ref/torqueで使った「差分置換」と同じ考え方を、一段外側に適用したもの。
+    /// 呼び出し箇所はcomputePositionHold()参照、設計根拠はdocs/plans/
+    /// smc-rate-loop-plan.md §7。
+    using VelocityLawFn = std::function<void(float vx_sp, float vx,
+                                              float vy_sp, float vy, float dt,
+                                              float& ax_ned, float& ay_ned)>;
+    void setVelocityLawOverride(VelocityLawFn fn) { velocity_law_override_ = std::move(fn); }
 
     ControlOutput compute(
         const StateEstimate& state,
@@ -152,6 +177,12 @@ private:
     // Position control PIDs / 位置制御PID
     PID pos_x_, pos_y_;
     PID vel_x_, vel_y_;
+
+    // Velocity-loop law override (see setVelocityLawOverride() above). nullptr
+    // = vel_x_/vel_y_ PID (default, standard vehicle build).
+    // 速度ループ則の差し替え（上のsetVelocityLawOverride()参照）。nullptr=
+    // vel_x_/vel_y_ PID（既定、標準vehicleビルド）。
+    VelocityLawFn velocity_law_override_;
 
     // Constants / 定数
     float max_rate_       = 1.0f;    // [rad/s] ACRO stick → rate sp scale (legacy ROLL/PITCH_RATE_MAX)

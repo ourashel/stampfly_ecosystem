@@ -768,6 +768,77 @@ smc_test_flight_180500   -0.275      M1 -88.7 / M2 +82.0 / M3 -48.6 / M4 +55.3  
 2本の独立したログで同じCWグループ（M2/RR, M4/FL）が弱い方向に一致しており、`--batch`による
 CG除去確認を待たずとも、M2/RRプロペラの現物確認は優先度を上げてよい。
 
+## 7. 位置制御ロバスト化（速度ループSMC化、`firmware/apps/smc_pos`）
+
+### 7.1 経緯・設計判断
+
+§3.15のモータ非対称性実測を受け、ユーザー提案「位置制御にもSMCを」に対し、実装前に
+`firmware/vehicle/docs/poshold_journey.md` §4を確認したところ、**位置/速度ループは既に
+実機プラント同定（実効「傾き→速度」ゲイン約0.4g、原因はモータトルク効き不足）に基づき
+再設計・実機検証済み**（`position.vel.kp` 0.8→3.0, `position.pos.kp` 1.0→0.4、
+K∈[2.8,7]で安定確認、実機で±6-7cmホールド達成）であることが判明。「±6-7cmはこの
+37g機体のトルク効きの実用限界」と明記されており、これは制御則でなくハードウェアの限界と
+結論されている。この新事実をユーザーに報告した上で、「既存が壊れているから」ではなく
+**既に頑健化済みのPIDベースラインとのA/B/C比較**として実装を進める方針で合意した
+（AskUserQuestion経由）。
+
+アーキテクチャは、PidController本体へ最小限の差し替え口
+（`setVelocityLawOverride()`、`computePositionHold()`内、位置ループ→速度ループの
+vx/vy→ax/ay段のみ）を追加する方式を採用（専用IController全自作は不採用、理由は
+コミットログ・app_controller.hppのコメント参照）。既定`nullptr`ならvehicleビルドの挙動は
+1バイトも変わらないことをSILS回帰（`pos_flight.scn`、`vehicle`ターゲット、フック追加前後で
+全メトリクス完全一致）で確認済み。
+
+新設した`firmware/apps/smc_pos`は、`smc_rate`のレートループSMCをそのまま流用し
+（`smc_rate.hpp`無変更コピー）、新規`smc_vel.hpp`（`SlidingModeVelocity`、
+`SlidingModeRate`と同型・単位を加速度/速度に再導出）を`PidController::
+setVelocityLawOverride()`経由で速度ループへ注入する。位置ループ（`pos_x_`/`pos_y_`）は
+無改造のまま。新規param `smc.{velx,vely}.{k,eta,phi,lambda_i,e_reset}`（計10個）追加。
+
+### 7.2 ラウンド1 SILS結果（初期シードゲイン、未チューニング）
+
+`pos_flight.scn`（3者比較、`vehicle` / `apps/smc_rate` / `apps/smc_pos`）:
+
+| target | horizontal_drift_max (<3.0) | tilt_max (<18.0) | duty_max (<0.9) | att_rmse (<5.0) | 総合 |
+|---|---|---|---|---|---|
+| vehicle (PID) | 0.3265 PASS | 11.10 PASS | **1.0000 FAIL** | 1.2644 PASS | FAIL（duty飽和、既知） |
+| apps/smc_rate | 0.7394 PASS | 13.93 PASS | 0.8902 PASS | 1.3044 PASS | **PASS（全12項目）** |
+| apps/smc_pos  | 0.7063 PASS | 13.93 PASS | **1.0000 FAIL** | **0.6680 PASS** | FAIL（duty飽和、vehicleと同じ症状が再発） |
+
+**所見**: att_rmseはsmc_posが最良（0.668、smc_rateの約半分）——速度ループSMCが姿勢追従を
+引き締める効果が見える。一方でduty_maxがvehicle同様1.0（飽和）に戻ってしまい、
+smc_rate単体が達成していた「duty<0.9」の改善が失われた——速度ループSMCの加速度指令が
+（seedゲイン段階では）レートSMC単体より高いモータ要求を生んでいる可能性。
+
+`pos_gain_deficit_smallnudge_hold40.scn`（`--torque-authority 0.55`注入、40秒保持中の
+水平振動の成長/収束を`trajectory.csv`のpx/pyから直接評価、この`.scn`自体に`.expect`
+ゲートは無い——実機同定振動の周期9.4秒を検出する設計のため長時間の振幅推移を目視/数値で見る
+運用):
+
+| target | 保持前半(15-20s)水平半径max | 保持後半(45-55s)水平半径max | 傾向 |
+|---|---|---|---|
+| vehicle (PID) | 0.0485 m | 0.0361 m | 収束（既存の広いロバストマージンの通り） |
+| apps/smc_rate | 0.0464 m | 0.0505 m | 微増（境界に近いが小さい） |
+| apps/smc_pos  | 0.0340 m | 0.0342 m | **ほぼ一定、かつ3者中最小振幅** |
+
+**所見**: この特定の摂動レベル（torque-authority=0.55）では、smc_posが3者中もっとも
+タイトかつ安定したホールドを示した。ただし**単一シナリオ・単一摂動レベル・未チューニングの
+初期シードゲインでの結果であり、smc_rateが辿った5ラウンドのチューニング・摂動族テスト
+（§3.2-3.8）に相当する検証はまだ行っていない**。この結果だけで優劣を結論づけない。
+
+### 7.3 現状のステータスとNext steps
+
+- [x] `PidController`への差し替え口追加・vehicle無変更を回帰確認
+- [x] `smc_pos`実装（レートSMC流用+速度SMC新規）、SILS/実機（ESP-IDF）双方でビルド確認
+- [x] ラウンド1 SILS結果取得（`pos_flight`3者比較、gain_deficit 1条件）
+- [ ] duty飽和の再発（§7.2）の原因調査 — 速度SMCの`k`/`eta`が現行seedで過大な可能性、
+      `smc_rate`が辿ったのと同様の複数ラウンドチューニングが必要
+- [ ] `pos_roll`/`pos_pitch`/`pos_yaw`/`pos_reposition`/`pos_auto_takeoff`の残り全シナリオ
+- [ ] `pos_gain_deficit_*`を複数の`--torque-authority`水準（0.4〜1.0）でスイープ
+- [ ] `--motor-delay`/`--noise`摂動族（`smc_rate`の§3.2と同じ一式）
+- [ ] 結果を踏まえチューニングラウンドを回す（`smc_rate`の§3.1-3.8と同じ規律）
+- [ ] 実機投入は本計画§4と同じゲート運用（ベンチ/テザー・ACRO確認から）
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて

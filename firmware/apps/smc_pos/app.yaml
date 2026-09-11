@@ -1,0 +1,5 @@
+type: embedded
+from: 11_app_controller
+sils: true
+description: レートループ(roll/pitch/yaw)+POS_HOLD速度ループ(vx/vy)をスライディングモード制御に置き換え、他はPidControllerへ委譲するIController
+name: smc_pos

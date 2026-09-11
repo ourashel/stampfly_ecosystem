@@ -30,6 +30,10 @@
  *         disturbance observer (DOB), altitude vel loop, opt-in via
  *         altitude.dob.fc (0=off); Airborne-only, INV-1 vertical channel
  *         only; see computeDobCorrection()/resetDobStates()
+ * @design docs/plans/smc-rate-loop-plan.md §7 — velocity-loop law      [--]
+ *         override (setVelocityLawOverride()), opt-in via an app's
+ *         AppController; nullptr default = unchanged vel_x_/vel_y_ PID.
+ *         See computePositionHold().
  */
 
 #include "pid_controller.hpp"
@@ -1328,9 +1332,18 @@ void PidController::computePositionHold(const StateEstimate& state,
     }
 
     // Inner loop (NED): velocity error → desired horizontal acceleration.
-    // 内ループ（NED）: 速度誤差 → 目標水平加速度。
-    const float ax_ned = vel_x_.compute(vx_sp, state.velocity[0], dt);
-    const float ay_ned = vel_y_.compute(vy_sp, state.velocity[1], dt);
+    // Defers to the pluggable law when an app has set one (see
+    // setVelocityLawOverride()); default is the proven PID.
+    // 内ループ（NED）: 速度誤差 → 目標水平加速度。appが差し替え口を設定していれば
+    // それに委譲（setVelocityLawOverride()参照）。既定は実績PID。
+    float ax_ned, ay_ned;
+    if (velocity_law_override_) {
+        velocity_law_override_(vx_sp, state.velocity[0], vy_sp, state.velocity[1],
+                                dt, ax_ned, ay_ned);
+    } else {
+        ax_ned = vel_x_.compute(vx_sp, state.velocity[0], dt);
+        ay_ned = vel_y_.compute(vy_sp, state.velocity[1], dt);
+    }
 
     // Rotate the desired NED acceleration into the body frame (yaw only).
     // 目標 NED 加速度を機体座標へ回転（ヨーのみ）。

@@ -265,6 +265,382 @@ namespace param_vars {
     // 動くため、飛行挙動の変化はない。
     float rate_yaw_max_torque = 1.226e-3f;
 
+    // Sliding-mode rate-loop gains (firmware/apps/smc_rate, an `sf app`
+    // experiment -- docs/plans/smc-rate-loop-plan.md). The DEFAULT vehicle
+    // build (no SF_APP_DIR, i.e. PidController) never reads these; they
+    // exist only so smc_rate's AppController gets the same sf params/NVS/
+    // `sf sils scenario --param` tunability the PID gains above have,
+    // without adding a second parameter subsystem.
+    //
+    // Seed derivation (docs/plans/smc-rate-loop-plan.md §2.4): the reaching
+    // law is torque = I_axis*(k*sat(s/phi) + eta*s). Inside the boundary
+    // layer (sat(s/phi)=s/phi) this is torque = I_axis*(k/phi + eta)*s, a
+    // linear gain on rate error like the PID's kp. Let
+    // Omega_axis = rate.<axis>.kp / I_axis (the existing PID's equivalent
+    // 1/s bandwidth for that axis) and split it eta=0.7*Omega (most of the
+    // proven small-signal behavior) + k/phi=0.3*Omega (extra reaching-phase
+    // margin outside the boundary layer), with a shared phi=0.3 rad/s:
+    //   roll:  Omega = 1.0e-3/9.16e-6  = 109.17 /s -> eta=76.42, k=0.3*Omega*phi=9.83
+    //   pitch: Omega = 1.426432e-3/13.3e-6 = 107.25 /s -> eta=75.07, k=9.65
+    //   yaw:   Omega = 8.029796e-4/20.4e-6 = 39.36 /s -> eta=27.55, k=3.54
+    //
+    // SILS-tuned update (2026-09-11, docs/plans/smc-rate-loop-plan.md §3.1):
+    // the derived seed above passed `acro_flight` (rate doublets) but FAILED
+    // `stab_flight` (STABILIZE combined roll+pitch step, att_rmse 4.47 deg >
+    // the 3.0 deg gate, vs. PID's 2.77 deg). A `sf sils scenario --param`
+    // sweep found halving phi (wider reaching-law authority relative to the
+    // boundary layer) and roughly doubling k/eta cleared stab_flight
+    // (att_rmse 2.85 deg) with NO regression on acro_flight (2.10 deg) --
+    // yaw scaled by the same ratio and additionally checked on yaw_hold (an
+    // M1-motor-80%-failure heading-hold stress scenario): yaw_band 0.23 deg
+    // vs. PID's 8.01 deg, duty_max 0.82 vs. PID's saturated 1.00 (yaw_hold's
+    // OWN alt_max failure is a pre-existing xfail-marked SILS yaw-plant-
+    // fidelity gap, simulation-policy.md backlog #11/#12 -- NOT attributable
+    // to this change; both PID and SMC fail it identically).
+    //
+    // These values are still SILS-only (noise=off, single seed) --
+    // NOT flight-validated, and not yet swept against the perturbation
+    // family simulation-policy.md §6 requires before a real-hardware
+    // proposal (motor-delay/thrust-eff/torque-authority, --noise n1/n2).
+    // Per CLAUDE.md, no control-parameter change is proposed for real
+    // hardware without that numerical backing first.
+    //
+    // スライディングモード・レートループのゲイン（firmware/apps/smc_rate、
+    // `sf app`実験 -- docs/plans/smc-rate-loop-plan.md）。既定vehicleビルド
+    // （SF_APP_DIR無し、つまりPidController）はこれらを一切読まない。
+    // smc_rateのAppControllerが上のPIDゲインと同じsf params/NVS/
+    // `sf sils scenario --param`調整能力を、第2のパラメータ機構を作らずに
+    // 得るためだけに存在する。
+    //
+    // 初期値の導出（docs/plans/smc-rate-loop-plan.md §2.4）: 到達則は
+    // torque = I_axis*(k*sat(s/phi) + eta*s)。境界層内（sat(s/phi)=s/phi）
+    // ではtorque = I_axis*(k/phi + eta)*sとなり、PIDのkpと同様レート誤差に
+    // 対する線形ゲインになる。Omega_axis = rate.<axis>.kp / I_axis
+    // （そのPIDの等価帯域[1/s]）を、eta=0.7*Omega（実績の線形域挙動の大半）
+    // + k/phi=0.3*Omega（境界層外の到達フェーズ余裕）に分配し、
+    // phi=0.3 rad/s（全軸共通）とする。
+    //
+    // SILSチューニングによる更新（2026-09-11、docs/plans/smc-rate-loop-plan.md
+    // §3.1）: 上の逆算初期値は`acro_flight`（レートダブレット）はPASSしたが
+    // `stab_flight`（STABILIZE roll+pitch複合ステップ）でatt_rmse=4.47°
+    // （ゲート3.0°、PIDは2.77°）とFAILした。`sf sils scenario --param`
+    // スイープでphiを半減（境界層に対する到達則の相対的な権限を拡大）し
+    // k/etaを概ね2倍にしたところ、stab_flightがPASS（att_rmse=2.85°）、
+    // acro_flightも劣化なし（2.10°）。yawも同じ倍率でスケールし、
+    // yaw_hold（M1モータ80%故障下のヘディングホールド外乱耐性シナリオ）で
+    // 追加確認: yaw_band 0.23°（PIDは8.01°）、duty_max 0.82（PIDは飽和1.00）
+    // — yaw_hold自体のalt_max FAILはxfailマーク付きの既存SILS yaw軸プラント
+    // 忠実度ギャップ（simulation-policy.md backlog #11/#12）であり本変更とは
+    // 無関係（PID・SMC両方が同様にFAILする）。
+    //
+    // これらの値はまだSILSのみ（noise=off、単一シード）での確認であり、
+    // 飛行検証済みではなく、実機提案前にsimulation-policy.md§6が求める
+    // 摂動族（motor-delay/thrust-eff/torque-authority, --noise n1/n2）での
+    // スイープも未実施。CLAUDE.mdの規定どおり、その数値的裏付け無しに
+    // 実機向けの制御パラメータ変更は提案しない。
+    // Rounds 2-3 (2026-09-11, docs/plans/smc-rate-loop-plan.md SS3.3) tried
+    // to fix a round-1 weakness (att_rmse up to 5.18 deg vs. PID's 2.5-2.8
+    // deg under simulation-policy.md SS6's --torque-authority 0.4/0.55
+    // perturbation) by pushing eta much higher (up to 400/390) and phi much
+    // narrower (down to 0.05) -- closer to a classical near-bang-bang
+    // reaching law. This DID fix torque-authority (0.4/0.55/0.7 all passed,
+    // att_rmse 2.2-2.9 deg) and even improved the nominal case, but caused a
+    // CATASTROPHIC regression elsewhere: --motor-delay 15ms produced a full
+    // tumble (att_rmse 187 deg, tilt_max 180-201 deg -- not a missed gate,
+    // an actual loss of control), and --noise n1 (a MILDER level than n2)
+    // failed to even complete takeoff. A middle-ground point (eta 250/245,
+    // phi 0.1) still tumbled at motor-delay 15ms (tilt_max 201 deg) while
+    // STILL failing torque-authority=0.4 and noise n1/n2 -- proving eta
+    // itself, once past some threshold well below 250, already crosses into
+    // an unsafe operating region against the actuator's unmodeled ~15ms
+    // delay, regardless of phi/k. This is the mirror image of round 1's
+    // problem: eta high enough for torque-authority robustness is too high
+    // for delay phase margin, and no phi/k adjustment escaped that trade-off
+    // in the points tried. PID's integral term does not face this trade-off
+    // (it compensates sustained multiplicative torque loss by accumulating,
+    // not by raising loop gain), which is the structural advantage this
+    // integral-free single-surface reaching law lacks (see smc_rate.hpp's
+    // file header).
+    //
+    // DECISION: safety over gate count. A tumble (round 2/3) is categorically
+    // worse than a missed-gate-but-controlled-flight (round 1's 22.8 deg
+    // tilt_max at motor-delay=15ms, still short of a crash), even though
+    // round 1 passes fewer perturbation checks overall. Reverted to the
+    // round-1 values below; torque-authority=0.4/0.55 and noise=n2 on
+    // stab_flight remain KNOWN, DOCUMENTED FAILURES -- not silently
+    // accepted, just not fixable by gain tuning alone within this design.
+    // See docs/plans/smc-rate-loop-plan.md SS3.3 for the full search log
+    // (8 distinct gain points tested) and this reasoning. Real-hardware
+    // flight is NOT proposed until this is resolved (via a design change --
+    // e.g. an integral-like or delay-compensating term -- which is beyond
+    // parameter tuning and out of THIS plan's approved scope).
+    //
+    // ラウンド2〜3（2026-09-11、docs/plans/smc-rate-loop-plan.md §3.3）は
+    // ラウンド1の弱点（simulation-policy.md §6の--torque-authority 0.4/0.55
+    // 摂動下でatt_rmse最大5.18°、PIDは2.5-2.8°）を、etaを大幅増（400/390まで）・
+    // phiを大幅縮小（0.05まで、古典的なほぼバンバン到達則に近づける）で解決
+    // しようとした。torque-authority自体は解決（0.4/0.55/0.7全てPASS、
+    // att_rmse 2.2-2.9°）し名目ケースも改善したが、**壊滅的な退行**を招いた:
+    // --motor-delay 15msで完全な転倒（att_rmse 187°、tilt_max 180-201°——
+    // ゲート未達でなく実際の制御喪失）、--noise n1（n2より軽いレベル）では
+    // 離陸すら完了しなかった。中間点（eta 250/245, phi 0.1）でもmotor-delay
+    // 15msで転倒（tilt_max 201°）したままtorque-authority=0.4・noise n1/n2は
+    // 未解決——250程度を超えた時点で既にetaそのものが、phi/kの調整に関わらず
+    // アクチュエータの未モデル化な約15ms遅れに対して安全域を外れることの証明。
+    // これはラウンド1の問題の鏡像である: torque-authority頑健性に必要な高eta
+    // は、遅れに対する位相余裕としては高すぎ、試した範囲ではphi/kの調整で
+    // この二律背反を回避できなかった。PIDの積分項はこのトレードオフに直面
+    // しない（ループゲインを上げるのでなく積分蓄積で持続的な乗法的トルク損失を
+    // 補償する）——これがこの積分無し単一面到達則に欠けている構造的な優位点。
+    //
+    // 判断: ゲート通過数より安全性を優先する。転倒（ラウンド2/3）は
+    // 「ゲート未達だが制御された飛行」（ラウンド1のmotor-delay=15msでの
+    // tilt_max=22.8°、墜落には至らない）より明確に悪い——ラウンド1の方が
+    // 通過する摂動チェックの総数は少なくても。下記の値をラウンド1に戻した。
+    // stab_flightでのtorque-authority=0.4/0.55・noise=n2は**既知・記録済みの
+    // 未解決FAIL**のまま——黙って受け入れたのでなく、本設計の範囲内では
+    // ゲイン調整だけでは解決できないと判断した。探索の全記録（8通りの異なる
+    // ゲイン点を検証）と根拠はdocs/plans/smc-rate-loop-plan.md §3.3参照。
+    // これが解消するまで実機飛行は提案しない（積分様項・遅れ補償項等の設計
+    // 変更が必要になる可能性が高いが、それはパラメータチューニングの範囲を
+    // 超え、本計画で承認された範囲外）。
+    // Round 4 (2026-09-11, docs/plans/smc-rate-loop-plan.md SS3.7): joint
+    // eta/lambda_i re-sweep, now that lambda_i can carry some of the
+    // torque-authority robustness burden. eta raised modestly (150/145 ->
+    // 180/175, well short of round 2/3's catastrophic 400/390) together
+    // with lambda_i raised substantially (1.5 -> 6) -- NOT eta alone, which
+    // rounds 2/3 already showed traded torque-authority for a
+    // motor-delay=15ms tumble. This combination is the best point found in
+    // a bumpy, non-monotonic search (6 combinations tried): stab_flight
+    // torque-authority=0.4 PASSES for the first time (2.78 deg, was FAIL at
+    // every eta/lambda_i tried before), nominal improved (2.57 deg), and
+    // motor-delay=15ms did NOT regress (24.3 deg tilt_max, same 22-25 deg
+    // band as every other point tried since the PI-surface was added --
+    // still no repeat of rounds 2/3's 180-201 deg tumbles). torque-
+    // authority=0.55 and noise=n1/n2 remain FAILING (see SS3.7's table) --
+    // the search space is genuinely non-monotonic (a nearby lambda_i=5
+    // point FAILS nominal outright while passing ta=0.55) and no single
+    // point tried passes all of stab_flight's perturbation set.
+    // ラウンド4（2026-09-11、docs/plans/smc-rate-loop-plan.md §3.7）: eta/
+    // lambda_iの同時再探索。lambda_iがtorque-authority頑健性の一部を
+    // 担えるようになったため。etaは控えめに引き上げ（150/145→180/175、
+    // ラウンド2〜3の壊滅的な400/390とは程遠い）、lambda_iを大幅に引き上げ
+    // （1.5→6）——eta単独ではない。ラウンド2〜3が既に示したとおりeta単独は
+    // torque-authorityとmotor-delay=15msの転倒を交換するだけ。凹凸のある
+    // 非単調な探索（6通り試行）の中で見つかった最良点: stab_flightの
+    // torque-authority=0.4が初めてPASS（2.78°、これまで試した全eta/lambda_i
+    // でFAILだった）、名目も改善（2.57°）、motor-delay=15msは悪化しなかった
+    // （tilt_max 24.3°、PI面追加以降どの点でも同じ22〜25°帯——ラウンド2〜3の
+    // 180〜201°の転倒は一度も再発していない）。torque-authority=0.55と
+    // noise n1/n2は未解決のまま（§3.7の表参照）——探索空間は本当に非単調
+    // （近傍のlambda_i=5点はta=0.55はPASSするが名目自体がFAILする）で、
+    // stab_flightの摂動群全てを通す単一点は見つかっていない。
+    // Round 5 (2026-09-11, docs/plans/smc-rate-loop-plan.md SS3.8): k swept
+    // at round-4's eta/lambda_i/phi (180/175, 6, 0.15) over {20,30,40,45}.
+    // NON-MONOTONIC again -- k=20 passes ta=0.4(2.78) but fails ta=0.55
+    // badly (3.69, +23%); k=30 fails BOTH worse than either neighbor
+    // (4.07/3.08); k=40 passes ta=0.55 comfortably (2.57) and ta=0.4 only
+    // barely fails (3.06, +2%); k=45 makes both worse again (3.32/3.16).
+    // k=40 kept as the better-balanced point (smaller total gate overshoot)
+    // -- still does NOT clear the full stab_flight perturbation set (see
+    // SS3.8 for the complete table). No k found that passes both
+    // simultaneously; the landscape is genuinely non-convex, not merely
+    // under-explored (9 total (eta,lambda_i,phi,k) points tried across
+    // SS3.7-3.8).
+    // ラウンド5（2026-09-11、docs/plans/smc-rate-loop-plan.md §3.8）: ラウンド4の
+    // eta/lambda_i/phi（180/175, 6, 0.15）を固定し、kを{20,30,40,45}で
+    // スイープ。再び非単調 -- k=20はta=0.4をPASS(2.78)するがta=0.55は大幅に
+    // FAIL(3.69, +23%)、k=30は両方とも隣接点より悪化(4.07/3.08)、k=40は
+    // ta=0.55を余裕でPASS(2.57)しta=0.4はわずかにFAIL(3.06, +2%)、k=45は
+    // 両方再び悪化(3.32/3.16)。総ゲート超過が小さいk=40をより均衡の取れた点
+    // として採用——それでもstab_flightの摂動群全体はクリアしない（完全な表は
+    // §3.8参照）。両方同時にPASSするkは見つからなかった——探索不足でなく
+    // 探索空間が本質的に非凸である（§3.7〜3.8で計9通りの(eta,lambda_i,phi,k)
+    // 点を試行）。
+    float smc_roll_k     = 40.0f;    // [rad/s^2] round-5 (was 20.0)
+    float smc_roll_eta   = 180.0f;   // [1/s] round-4 (was 150.0, round 1)
+    float smc_roll_phi   = 0.15f;    // [rad/s] unchanged from round 1
+    float smc_pitch_k    = 40.0f;    // [rad/s^2] round-5 (was 20.0, see roll_k comment above)
+    float smc_pitch_eta  = 175.0f;   // [1/s] round-4 (was 145.0, round 1)
+    float smc_pitch_phi  = 0.15f;    // [rad/s] unchanged from round 1
+    // yaw.phi kept at the ORIGINAL 0.3 (not halved like roll/pitch): narrowing
+    // it to 0.15 alongside the higher k/eta won yaw_hold's yaw_band a little
+    // more (0.23 vs 0.31 deg, both well inside the 1.5 deg gate) but broke
+    // stab_flight (att_rmse 3.32 deg > the 3.0 deg gate, vs. 2.88 deg at
+    // phi=0.3) -- confirmed by reverting only yaw.phi and re-testing both
+    // scenarios (docs/plans/smc-rate-loop-plan.md §3.1). stab_flight's RC
+    // script holds the yaw stick centered, so this is an indirect coupling
+    // (yaw reaction torque during the roll/pitch maneuver, handled more
+    // twitchily by a narrower yaw boundary layer) rather than a direct yaw
+    // command effect -- exactly the kind of single-scenario overfit
+    // simulation-policy.md §6 warns against, so phi stays at the wider,
+    // dual-scenario-safe value.
+    // yaw.phiはroll/pitchのように半減せず、元の0.3のまま据え置く。より
+    // 高いk/etaと合わせて0.15まで狭めるとyaw_holdのyaw_bandはやや改善した
+    // （0.23° vs 0.31°、どちらもゲート1.5°に対し十分な余裕）が、stab_flight
+    // を壊した（att_rmse 3.32°>ゲート3.0°、phi=0.3では2.88°）——yaw.phiだけを
+    // 戻して両シナリオを再テストして確認済み（docs/plans/smc-rate-loop-plan.md
+    // §3.1）。stab_flightのRCスクリプトはヨースティック中立を保つため、これは
+    // ヨー指令の直接効果ではなく間接結合（roll/pitch機動中のヨー反力トルクを、
+    // 狭い境界層のヨーがより神経質に処理する）——まさにsimulation-policy.md§6
+    // が警告する単一シナリオへの過学習であり、両シナリオで安全な広い方の値を
+    // 採用する。
+    float smc_yaw_k      = 7.3f;     // [rad/s^2] SILS-tuned 2026-09-11 (was 3.54)
+    float smc_yaw_eta    = 54.0f;    // [1/s] SILS-tuned 2026-09-11 (was 27.55)
+    float smc_yaw_phi    = 0.3f;     // [rad/s] unchanged -- see note above
+
+    // PI-type sliding surface integral gain (2026-09-11, docs/plans/
+    // smc-rate-loop-plan.md SS3.4/SS6 [R3]): s = e + lambda_i*integral(e dt)
+    // instead of the original s = e. Added specifically to fix the
+    // stab_flight + --torque-authority 0.4/0.55 failure documented above
+    // (SS3.2/SS3.3) WITHOUT repeating rounds 2-3's mistake of raising eta
+    // (which traded that fix for a motor-delay=15ms tumble) -- integral
+    // action compensates a STEADY multiplicative torque-effectiveness loss
+    // by accumulating, the same mechanism PID's Ti already relies on, so it
+    // should not need to raise the instantaneous loop gain the way eta
+    // does. lambda_i=0 recovers the original pure-P surface exactly.
+    // Seeded from the existing PID's integral time constants (1/Ti) so the
+    // ADDED integral action's own bandwidth is comparable, not a guess:
+    //   roll/pitch: 1/rate.{roll,pitch}.ti = 1/0.7 = 1.43 /s -> 1.5
+    //   yaw:        1/rate.yaw.ti           = 1/0.8 = 1.25 /s
+    // SILS-tuning status (2026-09-11, docs/plans/smc-rate-loop-plan.md SS3.5):
+    // VALIDATED as a genuine PARTIAL improvement, NOT a full fix. Swept
+    // lambda_i in {1.5, 3, 5} on stab_flight against nominal + the SS3.2/3.3
+    // perturbation set:
+    //   - torque-authority=0.4/0.55 att_rmse improved from ~4.9-5.2 deg
+    //     (lambda_i=0, round-1 eta/k/phi) to ~3.0-3.8 deg -- a real ~30%
+    //     reduction, but still short of the 3.0 deg gate at every lambda_i
+    //     tried.
+    //   - motor-delay=15ms did NOT regress at any lambda_i tested (tilt_max
+    //     stayed in the 22-25 deg band across all three values) -- the
+    //     integral term does NOT reproduce rounds 2-3's catastrophic
+    //     eta-driven phase-margin loss (tilt_max 180-201 deg tumbles). This
+    //     is the main achievement: torque-authority robustness gained
+    //     WITHOUT paying for it in delay margin.
+    //   - The 3 values tried are NOT monotonic across conditions (lambda_i=
+    //     1.5 gives the best torque-authority=0.4 and a passing nominal;
+    //     lambda_i=3 gives a better torque-authority=0.55 but a marginal
+    //     nominal and worse noise-n1; lambda_i=5 fails nominal outright).
+    //     noise n1/n2 did not improve at any lambda_i tried.
+    // lambda_i=1.5 (below) is kept as the best point found (passing nominal,
+    // the largest torque-authority=0.4 improvement) -- torque-authority=
+    // 0.4/0.55 and noise=n1/n2 on stab_flight remain KNOWN, DOCUMENTED
+    // FAILURES, same real-hardware gate as SS3.3. A joint lambda_i/eta
+    // re-sweep (not yet done) is the natural next step -- see SS3.5.
+    // PI型スライディング面の積分ゲイン（2026-09-11、docs/plans/
+    // smc-rate-loop-plan.md §3.4/§6 [R3]）: 元の s = e の代わりに
+    // s = e + lambda_i*積分(e dt) とする。上記（§3.2/§3.3）で記録した
+    // stab_flight + --torque-authority 0.4/0.55 の失敗を、ラウンド2〜3の
+    // 過ち（etaを上げてmotor-delay=15msの転倒と引き換えにした）を繰り返さず
+    // 修正するために追加した -- 積分作用は持続的な乗法的トルク有効度損失を
+    // 「積分の蓄積」で補償する。これはPIDのTiが既に依拠する機構と同じで、
+    // etaのようにループの瞬時ゲインを上げる必要が無いはず。lambda_i=0で
+    // 元の純P面に厳密に一致する。既存PIDの積分時定数（1/Ti）から初期値を
+    // 導出（当て推量でなく）:
+    //   roll/pitch: 1/rate.{roll,pitch}.ti = 1/0.7 = 1.43/s -> 1.5
+    //   yaw:        1/rate.yaw.ti           = 1/0.8 = 1.25/s
+    // SILSチューニング状況（2026-09-11、docs/plans/smc-rate-loop-plan.md
+    // §3.5）: 「部分的な改善」として検証済み——完全な解決ではない。
+    // lambda_iを{1.5, 3, 5}でstab_flightに対しnominal+§3.2/3.3の摂動群で
+    // スイープした結果: torque-authority=0.4/0.55のatt_rmseは約4.9〜5.2°
+    // （lambda_i=0、ラウンド1のeta/k/phi）から約3.0〜3.8°へ改善（約30%減）
+    // したが、どのlambda_iでも3.0°ゲートには届かなかった。motor-delay=15ms
+    // はどのlambda_iでも悪化しなかった（tilt_maxは全て22〜25°の帯域に留まり、
+    // ラウンド2〜3のような壊滅的な位相余裕喪失（tilt_max 180〜201°の転倒）を
+    // 再現しなかった）——これが主な成果: torque-authority頑健性を遅れ耐性を
+    // 犠牲にせず獲得できた。試した3値は条件間で非単調（lambda_i=1.5は
+    // torque-authority=0.4が最良かつnominalがPASS、lambda_i=3は
+    // torque-authority=0.55はより良いがnominalはギリギリでnoise n1は悪化、
+    // lambda_i=5はnominal自体がFAIL）。noise n1/n2はどのlambda_iでも
+    // 改善しなかった。下記のlambda_i=1.5を最良点として採用（nominalが
+    // PASSしtorque-authority=0.4の改善幅が最大）——torque-authority=
+    // 0.4/0.55・noise=n1/n2はstab_flightで既知・記録済みの未解決FAILの
+    // まま、§3.3と同じ実機投入ゲート未達。lambda_i/etaの同時再探索
+    // （未実施）が次の自然な一手——§3.5参照。
+    float smc_roll_lambda_i  = 6.0f;   // [1/s] round-4 (was 1.5, SS3.7)
+    float smc_pitch_lambda_i = 6.0f;   // [1/s] round-4 (was 1.5, SS3.7)
+    float smc_yaw_lambda_i   = 1.25f;  // [1/s]
+
+    // PI-surface integral anti-windup, layers 2-3 (2026-09-11, docs/plans/
+    // smc-rate-loop-plan.md SS3.6, added after review of the PI-surface
+    // integral's reset/bounding -- layer 1, conditional integration, needed
+    // no new param, it is algorithmic). e_reset: |e| threshold above which
+    // AppController's SlidingModeRate snaps its integral to 0 outright
+    // (layer 3) rather than merely freezing it (layer 1) -- a large
+    // transient (aggressive maneuver, big disturbance) makes the
+    // accumulated integral stale, and 0 disables this layer. Seeded at
+    // 5*phi (SS3.6's convention: "how far outside the linear operating
+    // regime counts as a large transient" is phi-relative) using each
+    // axis's phi default from ABOVE (roll/pitch 0.15, yaw 0.3):
+    //   roll/pitch: 5 * 0.15 = 0.75 rad/s
+    //   yaw:        5 * 0.3  = 1.5  rad/s
+    // (Layer 2's backstop clamp bound is computed at runtime from
+    // output_limit/inertia/eta/lambda_i in smc_rate.hpp -- no separate
+    // param needed.) NOT YET SILS-validated -- seed values only.
+    // PI面積分のアンチワインドアップ、第2〜3層（2026-09-11、docs/plans/
+    // smc-rate-loop-plan.md §3.6、PI面積分のリセット/上限に関するレビューを
+    // 受けて追加 -- 第1層の条件付き積分は新規パラメータ不要、アルゴリズム
+    // 内蔵のため）。e_reset: これを超える|e|でAppControllerの
+    // SlidingModeRateが積分を単に凍結（第1層）でなく0へスナップ（第3層）
+    // する閾値 -- 大きな過渡（激しい機動・大外乱）は蓄積積分を古くする、
+    // 0でこの層を無効化。5*phi（§3.6の慣例: 「線形動作域からどれだけ外れれば
+    // 大きな過渡か」は本質的にphi相対）で初期化、各軸のphi既定値（上記、
+    // roll/pitch 0.15、yaw 0.3）から:
+    //   roll/pitch: 5 * 0.15 = 0.75 rad/s
+    //   yaw:        5 * 0.3  = 1.5  rad/s
+    // （第2層のバックストップクランプの境界はsmc_rate.hppで
+    // output_limit/inertia/eta/lambda_iから実行時に計算する -- 別パラメータ
+    // 不要。）SILS未検証 -- あくまで初期値。
+    float smc_roll_e_reset  = 0.75f;  // [rad/s]
+    float smc_pitch_e_reset = 0.75f;  // [rad/s]
+    float smc_yaw_e_reset   = 1.5f;   // [rad/s]
+
+    // Sliding-mode horizontal-VELOCITY-loop gains (firmware/apps/smc_pos,
+    // smc_vel.hpp) -- plugged into PidController's vel_x_/vel_y_ stage via
+    // setVelocityLawOverride() (pid_controller.hpp). Unused by the default
+    // vehicle/smc_rate builds. docs/plans/smc-rate-loop-plan.md §7.
+    //
+    // Seed derivation (NOT YET SILS-validated -- seed values only, same
+    // status as smc_rate's original round-1 seed): matched to the CURRENT,
+    // already-hardware-robustified linear PID (position.vel.kp=3.0,
+    // position.vel.ti=2.0 -- firmware/vehicle/docs/poshold_journey.md §4.4).
+    // Near the origin (|s|<phi) the reaching law's linear gain is
+    // k/phi + eta; picking phi=0.15 m/s and splitting k/phi and eta roughly
+    // evenly (k=0.45 -> k/phi=3.0, eta=3.0) matches vel.kp's P-gain magnitude
+    // while keeping a real switching-term share (unlike smc_rate's
+    // eta-dominant split, this app's authors chose an even split as a
+    // starting point -- SILS will show whether that needs to shift toward
+    // smc_rate's eta-heavy pattern). lambda_i seeded at 1/ti = 0.5 (same
+    // "1/T_i" logic used for smc_rate.lambda_i's PI-surface integral gain).
+    // e_reset = 5*phi (SS3.6 convention, same as smc_rate) = 0.75 m/s.
+    // スライディングモード・水平速度ループのゲイン（firmware/apps/smc_pos,
+    // smc_vel.hpp）-- setVelocityLawOverride()（pid_controller.hpp）経由で
+    // PidControllerのvel_x_/vel_y_段へ注入される。既定vehicle/smc_rateビルド
+    // では未使用。docs/plans/smc-rate-loop-plan.md §7。
+    //
+    // 初期値の導出（SILS未検証 -- あくまで初期値、smc_rateの最初のラウンド1
+    // 初期値と同じ位置づけ）: 現行の、既に実機で頑健化済みの線形PID
+    // （position.vel.kp=3.0, position.vel.ti=2.0 --
+    // firmware/vehicle/docs/poshold_journey.md §4.4）に合わせた。原点近傍
+    // （|s|<phi）では到達則の線形ゲインはk/phi+eta——phi=0.15m/sとし、
+    // k/phiとetaをほぼ均等に分割（k=0.45 -> k/phi=3.0, eta=3.0）することで
+    // vel.kpのPゲインの大きさに合わせつつ、スイッチング項にも実質的な配分を
+    // 残した（smc_rateのeta優勢な配分とは異なり、本appでは均等分割を出発点に
+    // 選んだ -- SILSでsmc_rate流のeta優勢パターンへ寄せる必要が出るかは
+    // 検証課題）。lambda_iは1/ti=0.5で初期化（smc_rate.lambda_iのPI面積分
+    // ゲインと同じ「1/T_i」の考え方）。e_reset=5*phi（§3.6の慣例、smc_rateと
+    // 同じ）=0.75 m/s。
+    float smc_velx_k        = 0.45f;  // [m/s^2]
+    float smc_velx_eta      = 3.0f;   // [1/s]
+    float smc_velx_phi      = 0.15f;  // [m/s]
+    float smc_velx_lambda_i = 0.5f;   // [1/s]
+    float smc_velx_e_reset  = 0.75f;  // [m/s]
+    float smc_vely_k        = 0.45f;  // [m/s^2]
+    float smc_vely_eta      = 3.0f;   // [1/s]
+    float smc_vely_phi      = 0.15f;  // [m/s]
+    float smc_vely_lambda_i = 0.5f;   // [1/s]
+    float smc_vely_e_reset  = 0.75f;  // [m/s]
+
     // Scheduled autotune (solo pilot, hands-free): a single operator cannot type
     // `autotune` mid-flight, so SET these on the GROUND, then arm and fly. After the
     // craft has been FLYING for sched_delay seconds, the rate-loop autotune runs
@@ -721,6 +1097,55 @@ static const ParamEntry table[] = {
     // Yaw torque cap — see the param_vars comment (NT-Kanazawa saturation treatment).
     // ヨートルク上限 — param_vars のコメント参照（NT金沢飽和の治療）。
     {"rate.yaw.max_torque", ParamType::FLOAT, &rate_yaw_max_torque, 1.226e-3f, 1.0e-4f, 1.41e-3f, &notifyControllerReload},
+    // Sliding-mode rate-loop gains (firmware/apps/smc_rate) -- see the
+    // param_vars comment above for the seed derivation. Unused by the
+    // default vehicle build; wired to notifyControllerReload the same as
+    // the PID rows above so `smc_rate`'s AppController::reloadParams()
+    // picks up live edits (sf params set / --param sweeps / NVS).
+    // スライディングモード・レートループのゲイン（firmware/apps/smc_rate）
+    // -- 初期値の導出は上のparam_varsコメント参照。既定vehicleビルドでは
+    // 未使用。上のPID行と同じくnotifyControllerReloadに配線し、
+    // `smc_rate`のAppController::reloadParams()がライブ編集
+    // （sf params set / --paramスイープ / NVS）を反映できるようにする。
+    {"smc.roll.k",    ParamType::FLOAT, &smc_roll_k,    40.0f,  0.0f, 60.0f, &notifyControllerReload},
+    {"smc.roll.eta",  ParamType::FLOAT, &smc_roll_eta,  180.0f, 0.0f, 500.0f, &notifyControllerReload},
+    {"smc.roll.phi",  ParamType::FLOAT, &smc_roll_phi,  0.15f,  0.01f, 2.0f, &notifyControllerReload},
+    {"smc.pitch.k",   ParamType::FLOAT, &smc_pitch_k,   40.0f,  0.0f, 60.0f, &notifyControllerReload},
+    {"smc.pitch.eta", ParamType::FLOAT, &smc_pitch_eta, 175.0f, 0.0f, 500.0f, &notifyControllerReload},
+    {"smc.pitch.phi", ParamType::FLOAT, &smc_pitch_phi, 0.15f,  0.01f, 2.0f, &notifyControllerReload},
+    {"smc.yaw.k",     ParamType::FLOAT, &smc_yaw_k,     7.3f,   0.0f, 15.0f, &notifyControllerReload},
+    {"smc.yaw.eta",   ParamType::FLOAT, &smc_yaw_eta,   54.0f,  0.0f, 100.0f, &notifyControllerReload},
+    {"smc.yaw.phi",   ParamType::FLOAT, &smc_yaw_phi,   0.3f,   0.01f, 2.0f, &notifyControllerReload},
+    // PI-type sliding surface integral gain -- see the param_vars comment
+    // above for the seed derivation and SS3.4's status (not yet validated).
+    // PI型スライディング面の積分ゲイン -- 初期値の導出と§3.4のステータス
+    // （未検証）は上のparam_varsコメント参照。
+    {"smc.roll.lambda_i",  ParamType::FLOAT, &smc_roll_lambda_i,  6.0f,  0.0f, 10.0f, &notifyControllerReload},
+    {"smc.pitch.lambda_i", ParamType::FLOAT, &smc_pitch_lambda_i, 6.0f,  0.0f, 10.0f, &notifyControllerReload},
+    {"smc.yaw.lambda_i",   ParamType::FLOAT, &smc_yaw_lambda_i,   1.25f, 0.0f, 10.0f, &notifyControllerReload},
+    // Large-error integral reset threshold (anti-windup layer 3) -- see the
+    // param_vars comment above for the seed derivation (5*phi).
+    // 偏差ゲートによる積分リセット閾値（アンチワインドアップ第3層）--
+    // 初期値の導出（5*phi）は上のparam_varsコメント参照。
+    {"smc.roll.e_reset",  ParamType::FLOAT, &smc_roll_e_reset,  0.75f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc.pitch.e_reset", ParamType::FLOAT, &smc_pitch_e_reset, 0.75f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc.yaw.e_reset",   ParamType::FLOAT, &smc_yaw_e_reset,   1.5f,  0.0f, 5.0f, &notifyControllerReload},
+    // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
+    // see the param_vars comment above for the seed derivation. Unused by
+    // the default vehicle/smc_rate builds.
+    // スライディングモード・水平速度ループのゲイン（firmware/apps/smc_pos）
+    // -- 初期値の導出は上のparam_varsコメント参照。既定vehicle/smc_rate
+    // ビルドでは未使用。
+    {"smc.velx.k",        ParamType::FLOAT, &smc_velx_k,        0.45f, 0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.velx.eta",      ParamType::FLOAT, &smc_velx_eta,      3.0f,  0.0f, 20.0f, &notifyControllerReload},
+    {"smc.velx.phi",      ParamType::FLOAT, &smc_velx_phi,      0.15f, 0.01f, 2.0f, &notifyControllerReload},
+    {"smc.velx.lambda_i", ParamType::FLOAT, &smc_velx_lambda_i, 0.5f,  0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.velx.e_reset",  ParamType::FLOAT, &smc_velx_e_reset,  0.75f, 0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.vely.k",        ParamType::FLOAT, &smc_vely_k,        0.45f, 0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.vely.eta",      ParamType::FLOAT, &smc_vely_eta,      3.0f,  0.0f, 20.0f, &notifyControllerReload},
+    {"smc.vely.phi",      ParamType::FLOAT, &smc_vely_phi,      0.15f, 0.01f, 2.0f, &notifyControllerReload},
+    {"smc.vely.lambda_i", ParamType::FLOAT, &smc_vely_lambda_i, 0.5f,  0.0f, 5.0f,  &notifyControllerReload},
+    {"smc.vely.e_reset",  ParamType::FLOAT, &smc_vely_e_reset,  0.75f, 0.0f, 5.0f,  &notifyControllerReload},
     {"autotune.sched.axis",  ParamType::INT,   &autotune_sched_axis,  -1.0f, -1.0f,  2.0f,   nullptr},
     {"autotune.sched.delay", ParamType::FLOAT, &autotune_sched_delay, 20.0f,  3.0f, 120.0f,  nullptr},
     // Autotune sysid results (written by autotune, read-back only). Wide ranges = result store.
