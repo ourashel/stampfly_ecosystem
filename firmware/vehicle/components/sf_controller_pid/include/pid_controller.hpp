@@ -260,6 +260,15 @@ private:
     float pos_setpoint_y_ = 0;       // [m] captured position E (POS_HOLD target, NED)
     bool  capture_pos_    = false;   // capture pos_setpoint on the next POS_HOLD compute
 
+    // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md §7.30): decimation counter
+    // shared by the two ESP_LOGI probes in computePositionHold() and compute() that log
+    // the position/velocity/attitude cascade to find the origin of the persistent
+    // ~1.76s-period POS_HOLD oscillation seen in SILS. Remove after the investigation.
+    // 一時診断（§7.30）: computePositionHold() と compute() 内の2箇所のESP_LOGIプローブで
+    // 共有する間引きカウンタ。SILSで見つかった持続的な約1.76秒周期のPOS_HOLD振動の発生源
+    // 特定用。調査後に削除する。
+    uint32_t posdiag_counter_ = 0;
+
     // POS_HOLD stick repositioning (deflect to move, release to hold). A deflected roll/pitch
     // stick commands a horizontal velocity (body frame) into the velocity loop instead
     // of the position-hold output; releasing the stick re-captures the current position

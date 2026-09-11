@@ -458,6 +458,28 @@ ControlOutput PidController::compute(
 
         rate_sp_roll  = att_roll_.compute(roll_sp, euler.x, dt);
         rate_sp_pitch = att_pitch_.compute(pitch_sp, euler.y, dt);
+
+        // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md §7.30) -- see
+        // the block A probe in computePositionHold() for context. Logs the
+        // attitude-loop tracking (command vs. truth) and its rate-command
+        // output vs. measured rate, to localize the ~1.76s-period POS_HOLD
+        // oscillation to the attitude/rate stage if block A's roll_sp is
+        // clean. Shares posdiag_counter_ with block A; this call owns the
+        // decimation/reset. Remove after the measurement.
+        // 一時診断（§7.30）— 箇所Aのコンテキスト参照。姿勢ループの追従
+        // （指令 vs 実姿勢）とレート指令 vs 実測レートをログし、箇所Aの
+        // roll_sp が滑らかなら振動は姿勢/レート段にあると特定できる。
+        // posdiag_counter_ を箇所Aと共有、間引き・リセットはここが担う。
+        // 調査後に削除する。
+        if (++posdiag_counter_ >= 20) {   // 0.05s @ 400Hz -- ~35 samples/cycle at 1.76s period
+            posdiag_counter_ = 0;
+            ESP_LOGI(TAG, "posdiag B roll_sp=%.4f roll_meas=%.4f pitch_sp=%.4f pitch_meas=%.4f "
+                     "rate_sp_roll=%.4f rate_meas_roll=%.4f rate_sp_pitch=%.4f rate_meas_pitch=%.4f",
+                     static_cast<double>(roll_sp), static_cast<double>(euler.x),
+                     static_cast<double>(pitch_sp), static_cast<double>(euler.y),
+                     static_cast<double>(rate_sp_roll), static_cast<double>(state.angular_rate[0]),
+                     static_cast<double>(rate_sp_pitch), static_cast<double>(state.angular_rate[1]));
+        }
     }
 
     // =========================================================================
@@ -1362,6 +1384,30 @@ void PidController::computePositionHold(const StateEstimate& state,
     };
     pitch_sp = clampTilt(-ax_body / gravity_);
     roll_sp  = clampTilt( ay_body / gravity_);
+
+    // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md §7.30): log the
+    // position/velocity-loop internals to find where the observed ~1.76s-period
+    // position oscillation (pos_gain_deficit_smallnudge_hold40.scn, nominal
+    // conditions) originates -- single-axis frequency-domain analysis of the
+    // rate loop (wc~10.7rad/s, PM 64-78deg) and attitude loop (wc~5.2-5.5rad/s,
+    // PM~68deg) both show healthy margins, so the cause is the estimator, a
+    // 4-stage cascade interaction, or a nonlinearity -- none of which the
+    // per-loop linear analysis captures. Paired with the block B probe in
+    // compute() via the shared posdiag_counter_. Remove after the measurement.
+    // 一時診断（§7.30）: 観測された約1.76秒周期の位置振動（nominal条件下の
+    // pos_gain_deficit_smallnudge_hold40.scn）の発生源を探るため、位置/速度
+    // ループの内部信号をログする。レートループ・姿勢ループ単独の周波数領域解析
+    // は健全な余裕を示しており原因不明のまま — 推定器・4段カスケード相互作用・
+    // 非線形性のいずれかを疑う。compute()内の箇所Bと posdiag_counter_ を共有。
+    // 調査後に削除する。
+    if (posdiag_counter_ == 0) {   // decimated by block B below (same cycle)
+        ESP_LOGI(TAG, "posdiag A vx_est=%.4f vy_est=%.4f vx_sp=%.4f vy_sp=%.4f "
+                 "ax_ned=%.4f ay_ned=%.4f roll_sp=%.4f pitch_sp=%.4f",
+                 static_cast<double>(state.velocity[0]), static_cast<double>(state.velocity[1]),
+                 static_cast<double>(vx_sp), static_cast<double>(vy_sp),
+                 static_cast<double>(ax_ned), static_cast<double>(ay_ned),
+                 static_cast<double>(roll_sp), static_cast<double>(pitch_sp));
+    }
 }
 
 void PidController::onLanding()
