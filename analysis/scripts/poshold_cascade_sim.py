@@ -12,13 +12,18 @@ loop analysis in docs/plans/smc-rate-loop-plan.md §7.30.
 
 Unlike poshold_loop_design.py (which collapses attitude+rate into a single
 gain*delay "tilt_cmd -> accel" plant), this simulates the REAL rate loop
-(torque -> motor lag -> dead time -> I*angular_accel -> rate) and the REAL
+(torque -> motor lag -> dead time -> b*angular_accel -> rate) and the REAL
 attitude loop (rate_sp = PID(roll_sp, roll_meas)) explicitly, using the same
 firmware-exact discrete PID class (trapezoidal integral, conditional-
-integration anti-windup, incomplete-derivative filter) and the SAME
-calibrated rate-loop plant constants already validated in
-acro_gain_rate_loop_margins.py (I_roll, tau_m, L, eta_t -- chosen there so
-the CURRENT roll rate-loop gains reproduce a real-flight-plausible PM~55deg).
+integration anti-windup, incomplete-derivative filter).
+
+Rate-loop plant (b, T, L): originally an ad-hoc eta_t/I/tau_m/L calibration
+chosen only to hit an assumed real-flight PM~55deg target -- that version
+showed NO resonance near the observed 3.6 rad/s either in linear margins or
+this time-domain sim (§7.30続報2). Replaced with SILS's OWN empirically
+fitted (b,T,L) from `sf sils sysid-gate` (the same chirp/doublet excitation +
+rate_sysid.py ETFE fit the real-hardware model-match gate uses) -- see
+docs/plans/smc-rate-loop-plan.md §7.30続報3 for the fit and what changed.
 
 Roll axis only (the disturbed axis in the SILS scenario this investigation
 uses). Current production gains throughout (params.cpp, confirmed 2026-09-11):
@@ -35,13 +40,19 @@ MAX_POS_VEL = 1.0            # position-loop output limit [m/s] (params.cpp MAX_
 MAX_POS_TILT = 0.1745        # tilt clamp [rad] (10 deg, computePositionHold's max_pos_tilt_)
 VEL_OUT = G * MAX_POS_TILT   # velocity-loop output limit [m/s^2]
 
-# Rate-loop plant (roll), calibrated in acro_gain_rate_loop_margins.py so the
-# current roll rate gains reproduce a real-flight-plausible PM~55deg:
-#   G(s) = eta_t * e^{-L s} / ( I * s * (tau_m s + 1) )   torque -> rate
-I_ROLL = 9.16e-6
-TAU_M = 0.02                 # [s] motor first-order lag
-L_DELAY = 0.012              # [s] transport/compute dead time
-ETA_T = 0.10                 # effective torque gain (calibrated)
+# Rate-loop plant (roll): SILS's OWN empirically-fitted (b,T,L) from
+# `sf sils sysid-gate` (sysid_gate.scn chirp/doublet excitation + the same
+# rate_sysid.py ETFE fit the real-hardware reference uses; run 2026-09-12).
+# G(s) = b * e^{-L s} / ( s * (T s + 1) )   torque -> rate
+# This REPLACES the earlier ad-hoc eta_t/I/tau_m/L calibration (chosen only
+# to hit an assumed PM~55deg target) -- b_sils=99382 turned out to be +52%
+# vs the real-hardware reference b_ref=65384 (a separate, already-known
+# model-match gap, simulation-policy.md §4 backlog), and T/L are also
+# substantially different from the earlier assumption (14.78/1.75ms vs the
+# assumed 20/12ms). See docs/plans/smc-rate-loop-plan.md §7.30続報3.
+B_SILS = 99382.0             # [rad/s per Nm, roughly] fitted torque->rate gain
+T_SILS = 0.01478             # [s] fitted first-order lag
+L_SILS = 0.00175             # [s] fitted dead time
 
 # Current production gains (params.cpp, 2026-09-11)
 RATE_GAINS = (1.0e-3, 0.7, 0.002)
@@ -115,7 +126,7 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
     rate_pid = PID(*rate_gains, output_limit=RATE_OUT_LIMIT)
 
     n = int(T / dt)
-    ndelay = max(1, int(round(L_DELAY / dt)))
+    ndelay = max(1, int(round(L_SILS / dt)))
     torque_buf = [0.0] * ndelay
 
     # plant state
@@ -131,7 +142,7 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
     vy_sp_arr = np.empty(n); vy_arr = np.empty(n)
     py_arr = np.empty(n)
 
-    alpha_lag = dt / (TAU_M + dt)   # discrete first-order lag coefficient
+    alpha_lag = dt / (T_SILS + dt)   # discrete first-order lag coefficient
 
     for k in range(n):
         # ---- cascade (mirrors computePositionHold + compute()'s attitude/rate) ----
@@ -146,7 +157,7 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
         torque_buf.append(torque_cmd)
         torque_delayed = torque_buf.pop(0)
         torque_lag_state += alpha_lag * (torque_delayed - torque_lag_state)
-        ang_accel = ETA_T * torque_lag_state / I_ROLL
+        ang_accel = B_SILS * torque_lag_state
         rate += ang_accel * dt
         roll += rate * dt
 
@@ -197,8 +208,8 @@ if __name__ == "__main__":
     print("=== Full 4-stage nonlinear cascade sim, current production gains ===")
     print(f"rate.roll={RATE_GAINS}  attitude.roll={ATT_GAINS}  "
           f"position.vel={VEL_GAINS}  position.pos={POS_GAINS}")
-    print(f"plant: I_roll={I_ROLL:.3e}  tau_m={TAU_M*1000:.0f}ms  "
-          f"L={L_DELAY*1000:.0f}ms  eta_t={ETA_T}\n")
+    print(f"plant (SILS sysid-gate fit): b={B_SILS:.0f}  T={T_SILS*1000:.2f}ms  "
+          f"L={L_SILS*1000:.2f}ms\n")
 
     r = simulate_cascade(x0=0.03, T=40.0)
 
