@@ -1230,12 +1230,79 @@ torque-authority=0.4（att_rmse=3.34軽微FAIL）・noise n1（5.24 FAIL）は�
 `stab_flight`単体での検証は明らかに不十分であり、**STAアプローチ全体を実機投入するには
 時期尚早**と判断する。
 
-**結論**: `smc_rate_sta`の実機投入は中止。STAという手法自体は（§7.11-7.12で見た通り）
-有望だが、単一シナリオでの局所最適に陥りやすく、`smc_rate`の§3.2で確立した
+**結論（当初）**: `smc_rate_sta`の実機投入は中止。STAという手法自体は（§7.11-7.12で
+見た通り）有望だが、単一シナリオでの局所最適に陥りやすく、`smc_rate`の§3.2で確立した
 「複数シナリオ・複数摂動での同時検証」という規律を、STAでも最初から徹底する必要が
 あった——今回はそれを怠ったまま実機投入に進もうとしてしまった、という反省点として
-記録する。コード自体（`firmware/apps/smc_rate_sta`）は残すが、追加のチューニング・
-実機投入は行わない。
+記録する。
+
+### 7.14 STA再チューニング（複数アーキタイプ同時ゲート）と新規複雑シナリオ
+
+ユーザー指示（「バランス点を探し出し、実機に書き込んで」「SILSのシナリオに複雑な
+コントロール入力した場合のモノも追加して」）を受け、§7.13の反省を踏まえて再開。
+**今度は`stab_flight`・`pos_flight`・新規シナリオの3アーキタイプを同時にゲートとして
+スイープした。**
+
+**新規シナリオ**: [`stab_combined_aggressive.scn`](../../simulator/sils/scenarios/stab_combined_aggressive.scn)
+を追加。`stab_flight`（1軸ずつ順番）・`pos_flight`（roll+pitch同時だが単一ステップを
+保持、POS_HOLD）のどちらとも異なる第3のアーキタイプ: STABILIZEで**3軸（roll+pitch+yaw）
+を同時に**動かし、さらに**機動の途中で方向を反転**させる（実際のパイロットの「乱雑な」
+スティック入力に近い）。ゲート値はPID基準（att_rmse=0.53, tilt=10.80）と1次SMC基準
+（att_rmse=3.11, tilt=15.43）の実測値から設定（`stab_combined_aggressive.expect`）。
+
+**結合スイープ**（`stab_flight`+`pos_flight`、`motor-delay=15ms`、roll/pitch同時変更）:
+
+| k1 | k2 | stab（tilt/att_rmse） | pos（drift/tilt/att_rmse、duty以外） |
+|---|---|---|---|
+| **60** | **30** | **12.3°/2.12 PASS** | **0.70m/16.3°/0.69 PASS** |
+| 80 | 40 | 12.9°/2.08 PASS | 0.64m/16.6°/0.66 PASS |
+| 100 | 50 | 16.8°/**5.09 FAIL** | 1.94m/13.3°/2.19 PASS |
+| 120 | 60 | 14.9°/1.32 PASS | **6.18m FAIL**/16.0°/**8.35 FAIL** |
+| 140（§7.13） | 70 | 17.2°/0.99 PASS | **57.2m FAIL**/**35.9° FAIL**/**26.5 FAIL** |
+
+k1=60とk1=80がどちらも両シナリオで健全だったため、nominal（遅れ無し）条件で追加比較
+したところ、**k1=80はnominalのatt_rmseが4.16まで悪化**（k60は2.96）——k1=50も同様に
+nominalで4.21まで悪化し、**k1=60付近が狭い局所最適**であることを確認した
+（「低いほど安全」という単純な関係ではない）。
+
+**最終採用: k1=60, k2=30**（roll/pitch）、yawは同じ60/170比でスケール（k1=15.2,
+k2=7.4、yaw固有の検証は未実施）。3アーキタイプ×{nominal, motor-delay=15ms}の
+全6条件で再検証:
+
+| シナリオ | 条件 | 結果 |
+|---|---|---|
+| `stab_flight` | nominal | att_rmse=2.88, tilt=13.17 — **PASS** |
+| `stab_flight` | motor-delay=15ms | att_rmse=2.23, tilt=12.32 — **PASS** |
+| `pos_flight` | nominal | drift=0.78, tilt=13.97, att_rmse=0.94 — **PASS** |
+| `pos_flight` | motor-delay=15ms | drift=0.95, tilt=16.10, att_rmse=1.14 — **PASS**（§7.13の57m/36°から回復） |
+| `stab_combined_aggressive` | nominal | att_rmse=4.56, tilt=16.35 — **PASS** |
+| `stab_combined_aggressive` | motor-delay=15ms | att_rmse=2.51, tilt=16.74 — **PASS** |
+| `acro_flight` | nominal | att_rmse=1.93, tilt=7.84 — PASS |
+| `stab_flight` | torque-authority=0.4 | att_rmse=3.44（軽微FAIL、既知の受容済みクラス） |
+| `stab_flight` | noise n1 | att_rmse=4.72（FAIL、既知の受容済みクラス） |
+
+**§7.13の教訓通り、3アーキタイプ同時検証で初めて、単一シナリオへの過学習ではない
+ゲインが見つかった。** 残るFAIL（torque-authority=0.4・noise n1）は`smc_rate`自身の
+PID/1次SMC基準で既に受容済みの同種の限界であり、新規退行ではない。
+
+### 7.15 組み合わせ総点検（過去実装の一括確認）
+
+ユーザー指示（「過去の実装の組み合わせ総点検」）を受け、これまでのセッションで追加した
+機能の相互作用・回帰を確認した:
+
+- **無駄時間予測補償器 + スライディング面不感バンドの同時使用**（`smc_rate`、両方
+  非ゼロ）: `stab_flight+motor-delay=15ms`でatt_rmse=3.44（軽微FAIL）・tilt=13.63
+  PASS・duty PASS——破局的な相互作用なし、2機構は問題なく合成できることを確認
+- **`smc_pos`のnominal回帰**（`pos_flight`）: 既存の基準値（drift=1.105, tilt=13.93,
+  duty=0.80, att_rmse=0.61）と完全一致——今回のセッションでの変更による意図しない
+  影響なし
+- **`smc_pos`の速度ループ遅れ補償のnominal回帰**（comp=8ms）: 同様に既存基準値と一致
+- **全4ターゲットの実機（ESP32-S3）ビルド確認**: `vehicle`・`smc_rate`・`smc_pos`・
+  `smc_rate_sta`——詳細は本節末尾
+
+コードベース全体（`smc_rate`・`smc_pos`・`smc_rate_sta`の3アプリ、無駄時間予測補償器・
+不感バンド・STAという3つの新規機構）は、相互に矛盾なく共存しており、params.cppの
+パラメータ名重複も無いことを確認した。
 
 ## 4. 実機投入ゲート
 

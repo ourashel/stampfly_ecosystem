@@ -692,18 +692,43 @@ namespace param_vars {
     // att_rmse=3.34軽微、noise n1の5.24）はsmc_rate自身のPID/1次SMC基準で
     // 既に受容済みの同種の限界であり、新規退行ではない。yawは140/170と
     // 同じ比でスケール（yaw固有のスイープは未実施、未検証）。
-    float smc_sta_roll_k1        = 140.0f;  // [rad/s^2 per sqrt(rad/s)] round-1 (was 170 seed)
-    float smc_sta_roll_k2        = 70.0f;   // [rad/s^3] round-1 (was 85 seed)
+    // Round-2 tuning (2026-09-11, docs/plans/smc-rate-loop-plan.md §7.13-7.14):
+    // round-1's k1=140/k2=70 was validated ONLY against stab_flight, and
+    // collapsed catastrophically on pos_flight.scn (simultaneous roll+pitch,
+    // POS_HOLD) under the identical motor-delay=15ms perturbation --
+    // drift=57.2m, tilt_max=35.9deg (tumble-class). A joint sweep re-run
+    // against BOTH stab_flight AND pos_flight (plus the new
+    // stab_combined_aggressive.scn) simultaneously found k1=60/k2=30 as the
+    // only value clearing all three archetypes without a tumble-class
+    // failure -- k1=50 and k1=80 both regressed nominal att_rmse (4.21 and
+    // 4.16 vs k60's 2.96), confirming a non-monotonic, narrow local optimum
+    // near k1=60, not a simple "lower is safer" relationship. See
+    // docs/plans/smc-rate-loop-plan.md §7.14 for the full joint-sweep table.
+    // Yaw scaled by the same 60/170 ratio relative to the original seed
+    // (still untested directly for yaw).
+    // ラウンド2チューニング（2026-09-11、docs/plans/smc-rate-loop-plan.md
+    // §7.13-7.14）: ラウンド1のk1=140/k2=70はstab_flightだけで検証されており、
+    // 同じmotor-delay=15ms摂動下でpos_flight.scn（ロール+ピッチ同時、
+    // POS_HOLD）では壊滅的に破綻した——drift=57.2m, tilt_max=35.9°（転倒級）。
+    // stab_flightとpos_flight（さらに新規stab_combined_aggressive.scn）の
+    // 両方を同時にゲートとする結合スイープをやり直し、k1=60/k2=30だけが
+    // 3つのアーキタイプ全てで転倒級の失敗なしにクリアすることを確認した——
+    // k1=50・k1=80はどちらもnominalのatt_rmseが悪化（4.21・4.16、k60の
+    // 2.96に対して）、「低いほど安全」という単純な関係ではなく、k1=60付近の
+    // 狭い局所最適であることを確認。yawは元シードに対する同じ60/170比で
+    // スケール（yaw固有の検証は依然未実施）。
+    float smc_sta_roll_k1        = 60.0f;   // [rad/s^2 per sqrt(rad/s)] round-2 (was 140 round-1, 170 seed)
+    float smc_sta_roll_k2        = 30.0f;   // [rad/s^3] round-2 (was 70 round-1, 85 seed)
     float smc_sta_roll_phi       = 0.02f;   // [rad/s]
     float smc_sta_roll_lambda_i  = 6.0f;    // [1/s]
     float smc_sta_roll_e_reset   = 0.75f;   // [rad/s]
-    float smc_sta_pitch_k1       = 140.0f;  // [rad/s^2 per sqrt(rad/s)] round-1 (was 170 seed)
-    float smc_sta_pitch_k2       = 70.0f;   // [rad/s^3] round-1 (was 85 seed)
+    float smc_sta_pitch_k1       = 60.0f;   // [rad/s^2 per sqrt(rad/s)] round-2 (was 140 round-1, 170 seed)
+    float smc_sta_pitch_k2       = 30.0f;   // [rad/s^3] round-2 (was 70 round-1, 85 seed)
     float smc_sta_pitch_phi      = 0.02f;   // [rad/s]
     float smc_sta_pitch_lambda_i = 6.0f;    // [1/s]
     float smc_sta_pitch_e_reset  = 0.75f;   // [rad/s]
-    float smc_sta_yaw_k1         = 35.4f;   // [rad/s^2 per sqrt(rad/s)] round-1, scaled by 140/170 (was 43 seed, untested for yaw)
-    float smc_sta_yaw_k2         = 17.3f;   // [rad/s^3] round-1, scaled by 140/170 (was 21 seed, untested for yaw)
+    float smc_sta_yaw_k1         = 15.2f;   // [rad/s^2 per sqrt(rad/s)] round-2, scaled by 60/170 (was 35.4 round-1, 43 seed, untested for yaw)
+    float smc_sta_yaw_k2         = 7.4f;    // [rad/s^3] round-2, scaled by 60/170 (was 17.3 round-1, 21 seed, untested for yaw)
     float smc_sta_yaw_phi        = 0.04f;   // [rad/s]
     float smc_sta_yaw_lambda_i   = 1.25f;   // [1/s]
     float smc_sta_yaw_e_reset    = 1.5f;    // [rad/s]
@@ -1293,18 +1318,18 @@ static const ParamEntry table[] = {
     // スーパーツイスティング・レートループのゲイン（firmware/apps/
     // smc_rate_sta）-- 初期値の導出は上のparam_varsコメント参照。
     // vehicle/smc_rate/smc_posでは未使用。
-    {"smc_sta.roll.k1",        ParamType::FLOAT, &smc_sta_roll_k1,        140.0f, 0.0f, 1000.0f, &notifyControllerReload},
-    {"smc_sta.roll.k2",        ParamType::FLOAT, &smc_sta_roll_k2,        70.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.roll.k1",        ParamType::FLOAT, &smc_sta_roll_k1,        60.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.roll.k2",        ParamType::FLOAT, &smc_sta_roll_k2,        30.0f,  0.0f, 1000.0f, &notifyControllerReload},
     {"smc_sta.roll.phi",       ParamType::FLOAT, &smc_sta_roll_phi,       0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_sta.roll.lambda_i",  ParamType::FLOAT, &smc_sta_roll_lambda_i,  6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_sta.roll.e_reset",   ParamType::FLOAT, &smc_sta_roll_e_reset,   0.75f,  0.0f, 5.0f,    &notifyControllerReload},
-    {"smc_sta.pitch.k1",       ParamType::FLOAT, &smc_sta_pitch_k1,       140.0f, 0.0f, 1000.0f, &notifyControllerReload},
-    {"smc_sta.pitch.k2",       ParamType::FLOAT, &smc_sta_pitch_k2,       70.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.pitch.k1",       ParamType::FLOAT, &smc_sta_pitch_k1,       60.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.pitch.k2",       ParamType::FLOAT, &smc_sta_pitch_k2,       30.0f,  0.0f, 1000.0f, &notifyControllerReload},
     {"smc_sta.pitch.phi",      ParamType::FLOAT, &smc_sta_pitch_phi,      0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_sta.pitch.lambda_i", ParamType::FLOAT, &smc_sta_pitch_lambda_i, 6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_sta.pitch.e_reset",  ParamType::FLOAT, &smc_sta_pitch_e_reset,  0.75f,  0.0f, 5.0f,    &notifyControllerReload},
-    {"smc_sta.yaw.k1",         ParamType::FLOAT, &smc_sta_yaw_k1,         35.4f,  0.0f, 1000.0f, &notifyControllerReload},
-    {"smc_sta.yaw.k2",         ParamType::FLOAT, &smc_sta_yaw_k2,         17.3f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.yaw.k1",         ParamType::FLOAT, &smc_sta_yaw_k1,         15.2f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_sta.yaw.k2",         ParamType::FLOAT, &smc_sta_yaw_k2,         7.4f,   0.0f, 1000.0f, &notifyControllerReload},
     {"smc_sta.yaw.phi",        ParamType::FLOAT, &smc_sta_yaw_phi,        0.04f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_sta.yaw.lambda_i",   ParamType::FLOAT, &smc_sta_yaw_lambda_i,   1.25f,  0.0f, 10.0f,   &notifyControllerReload},
     {"smc_sta.yaw.e_reset",    ParamType::FLOAT, &smc_sta_yaw_e_reset,    1.5f,   0.0f, 5.0f,    &notifyControllerReload},

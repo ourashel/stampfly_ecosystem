@@ -1,0 +1,62 @@
+# stab_combined_aggressive.scn — STABILIZE, SIMULTANEOUS 3-axis + rapid
+# reversal ("complex control input") (vehicle, Layer 2, stress test)
+# STABILIZE・3軸同時+急反転（「複雑な制御入力」）（vehicle, Layer 2, ストレス試験）
+#
+# Motivation (docs/plans/smc-rate-loop-plan.md §7.13): stab_flight.scn exercises
+# roll/pitch/yaw ONE AT A TIME, sequentially. pos_flight.scn combines roll+pitch
+# but only as a single step, held steady, under POSITION_HOLD (so the position/
+# velocity cascade's own dynamics dominate). Neither resembles a real pilot's
+# "messy" stick input: multiple axes moving AT ONCE, and REVERSING direction
+# mid-maneuver rather than holding a single step. A gain set that looks solid on
+# stab_flight/pos_flight individually was found to diverge catastrophically on
+# pos_flight specifically (drift 57m, tilt 36deg) under the same perturbation
+# that looked fine on stab_flight alone -- this scenario is a third, structurally
+# different stress case (STABILIZE, so the rate+attitude loop is exercised
+# without the position cascade's own dynamics, but with genuinely combined +
+# reversing multi-axis input) so a gain set must clear all three archetypes,
+# not just one, before being considered validated.
+# 動機（docs/plans/smc-rate-loop-plan.md §7.13）: stab_flight.scnはroll/pitch/yaw
+# を順番に1軸ずつ動かす。pos_flight.scnはroll+pitchを組み合わせるが単一ステップを
+# 保持するだけで、POSITION_HOLD下ゆえ位置/速度カスケード自身の力学が支配的になる。
+# どちらも実際のパイロットの「乱雑な」スティック入力——複数軸を同時に動かし、
+# 単一ステップの保持でなく機動の途中で方向を反転させる——には似ていない。
+# stab_flight/pos_flightそれぞれ単体では健全に見えたゲインが、同じ摂動下で
+# pos_flightだけ壊滅的に発散した（drift 57m, tilt 36°）実例があり——本シナリオは
+# 3つ目の、構造的に異なるストレス条件（STABILIZE、位置カスケード自身の力学は
+# 無いがレート+姿勢ループには真に組み合わさった・反転する多軸入力が掛かる）で、
+# ゲイン集合は1つのアーキタイプだけでなく3つとも通ってはじめて検証済みとみなす。
+#
+# Sticks are raw 12-bit ADC, centre 2048. Hover raw ~3176 (2026-07-26 ODE-plant
+# recal, see stab_flight.scn's header comment for the derivation). roll/pitch/yaw
+# steps reuse stab_flight.scn's ~+-8 deg tilt magnitude (raw 2600/1496) so results
+# are comparable axis-for-axis; yaw uses a moderate rate-stick deflection.
+# スティックはraw 12bit ADC（中央2048）。ホバーraw~3176（導出はstab_flight.scnの
+# 冒頭コメント参照）。roll/pitch/yawのステップはstab_flight.scnと同じ~±8°の大きさ
+# （raw 2600/1496）を再利用し、軸ごとに結果を比較可能にする。yawは中程度の
+# レートスティック偏位。
+#
+#  <t>  ch  <thr> <roll> <pitch> <yaw> <arm> <hold_ms> <rate_hz>
+   0    rc   2048  2048   2048    2048  0     4000      50       # A: disarmed 4 s -> boot reaches IDLE_GROUND
+   +    rc   2048  2048   2048    2048  1     1000      50       # B: ARM rising edge, idle throttle 1 s
+   +    rc   3243  2048   2048    2048  1     2000      50       # C: throttle up -> TAKEOFF -> FLYING/STABILIZE, climbs off the ground
+   +    rc   3176  2600   2600    2400  1     1200      50       # D: SIMULTANEOUS roll-right + pitch-forward + yaw-right (3-axis at once, not sequential)
+   +    rc   3176  1496   1496    1696  1     1200      50       # E: RAPID REVERSAL -- all 3 axes flip sign mid-maneuver (no settle time at D's extreme)
+   +    rc   3176  2600   1496    2048  1      900      50       # F: cross-coupled step -- roll and pitch now OPPOSITE signs, yaw centred
+   +    rc   3176  1496   2600    1696  1      900      50       # G: reverse again, different axis combination
+   +    rc   3176  2048   2048    2048  1     1500      50       # H: centre -> self-level back toward 0 deg, let it settle
+   +      rc    2048 2048 2048 2048  0     200       50              # release ARM button / ボタン離し
+   +      rc    2048 2048 2048 2048  1     200       50              # press again -> DISARM (toggle) / 再押下=DISARM
+   +      rc    2048 2048 2048 2048  0     600       50              # settle disarmed / disarm 後整定
+#
+# Expectation: log shows the full ARM -> TAKEOFF -> FLYING -> DISARM sequence;
+# trajectory stays bounded throughout the D-G combined/reversing maneuvers (no
+# divergence, no sustained motor-duty runaway) and self-levels at H. Because the
+# maneuver window (D-G) is short segments back-to-back rather than one long hold,
+# att_rmse over the WHOLE window is expected to run higher than stab_flight's
+# single-step test -- the numerical gates below are set accordingly (see
+# stab_combined_aggressive.expect).
+# 期待: ログにARM->TAKEOFF->FLYING->DISARMの一連。D-Gの複合・反転機動全体で
+# 軌道が有界（発散なし、モータduty張り付きの持続なし）、Hで水平へ復帰。
+# D-Gは単一の長い保持でなく短い区間の連続のため、全区間のatt_rmseは
+# stab_flightの単一ステップ試験より高めに出る想定——下の数値ゲートはそれに
+# 合わせて設定する（stab_combined_aggressive.expect参照）。

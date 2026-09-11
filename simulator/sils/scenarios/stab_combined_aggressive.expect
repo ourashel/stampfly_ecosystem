@@ -1,0 +1,40 @@
+# stab_combined_aggressive.expect — assert the vehicle state machine drives
+# ARM -> TAKEOFF -> FLYING -> DISARM through a SIMULTANEOUS multi-axis,
+# direction-reversing maneuver sequence (docs/plans/smc-rate-loop-plan.md
+# §7.13/§7.14), and that the trajectory stays bounded throughout (no tumble,
+# no sustained motor-duty runaway) rather than tracking any single step
+# tightly (the maneuver is deliberately faster and more combined than
+# stab_flight.scn, so a looser att_rmse gate than stab_flight's 3.0 is
+# appropriate -- draft thresholds set from a PID baseline run plus margin,
+# see docs/plans/smc-rate-loop-plan.md §7.14 for the derivation).
+# vehicleの状態機械が同時多軸・方向反転する機動列を通してARM->TAKEOFF->
+# FLYING->DISARMを駆動し（docs/plans/smc-rate-loop-plan.md §7.13/§7.14）、
+# 軌道が終始有界（転倒なし、モータduty張り付きの持続なし）であることを検証する
+# ——単一ステップを精密に追従することではない（本機動はstab_flight.scnより
+# 意図的に速く複合的なため、stab_flightのatt_rmseゲート3.0より緩い値が妥当
+# ——初期しきい値はPIDベースライン実行+マージンから設定、導出は
+# docs/plans/smc-rate-loop-plan.md §7.14参照）。
+exit 0
+log_contains any "ARM accepted"                  # IDLE_GROUND -> ARMED_GROUND
+log_contains any "Takeoff detected"              # ARMED_GROUND -> TAKEOFF
+log_contains any "Takeoff complete"              # TAKEOFF -> FLYING
+log_contains any "DISARM accepted"               # FLYING -> IDLE_GROUND
+order "ARM accepted" "Takeoff detected"
+order "Takeoff detected" "Takeoff complete"
+order "Takeoff complete" "DISARM accepted"
+# Numerical gates over the combined-maneuver + settle window [7.5,12.7]s
+# (segments D-H: simultaneous 3-axis, reversal, cross-coupled, reverse again,
+# centre/settle -- see stab_combined_aggressive.scn's timeline comment).
+# Thresholds set from real baseline runs (docs/plans/smc-rate-loop-plan.md
+# §7.14): PID att_rmse=0.53/tilt=10.80, first-order SMC (smc_rate round-5)
+# att_rmse=3.11/tilt=15.43 -- both comfortably bounded despite the harder
+# input. Gates below sit with real headroom above the weaker (SMC) baseline
+# rather than the originally-drafted, much looser 8.0/25.0 placeholder.
+# ゲートは実際のベースライン実行から設定（docs/plans/smc-rate-loop-plan.md
+# §7.14）: PID att_rmse=0.53/tilt=10.80、1次SMC（smc_rate round-5）
+# att_rmse=3.11/tilt=15.43 -- 厳しい入力でもどちらも十分に有界。下のゲートは
+# 弱い方（SMC）の基準値に対して実質的な余裕を持たせた値とし、当初の緩い
+# 仮置き値（8.0/25.0）から締め直した。
+metric att_rmse < 5.0  in 7.5 12.7   # bounded tracking through a fast combined/reversing sequence (SMC baseline 3.11 + margin; matches pos_flight.expect's own att_rmse gate)
+metric tilt_max < 20.0 in 7.5 12.7   # bounded attitude, not a tumble (SMC baseline 15.43 + margin; stab_flight's single-step gate is 18.0, this allows slightly more for genuinely combined 3-axis input)
+metric duty_max < 1.001 in 7.5 12.7  # motors not commanded past the physical ceiling (MAX_DUTY=1.0 + float epsilon, same convention as stab_flight.expect)
