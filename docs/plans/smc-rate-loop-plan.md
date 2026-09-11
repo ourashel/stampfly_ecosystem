@@ -1414,7 +1414,12 @@ z_dot = -k2·sign(s) - z/z_leak_tau   （z_leak_tau>0の場合。0で従来の�
 | stab_combined_aggressive motor-delay=15ms | att_rmse=2.51°, tilt=16.74° | att_rmse=4.18°, tilt=17.22° — 同等 |
 
 **転倒を解消しつつ、既存の6条件全てで回帰なし**（一部はむしろ改善）。この構成
-（k1=60/k2=30 + z_leak_tau=1.0s）を実機へ再投入する。
+（k1=60/k2=30 + z_leak_tau=1.0s）を実機へ再投入した
+（`sf app flash smc_rate_sta`、`[OK] Flash successful`確認済み、2026-09-11）。
+§7.17で見つかった転倒脆弱性のある旧ビルド（コミット7bd0b558時点）は、この安全な
+ビルド（コミットb9d05f6c）で上書きされた。**依然アーム・飛行は行っていない**——
+§7.17のNext stepsに挙げた追加検証（PID/1次SMCとの比較、他ゲインでの持続外乱再現性）
+が残っており、実機飛行はそれらを踏まえてから判断する。
 
 ## 4. 実機投入ゲート
 
