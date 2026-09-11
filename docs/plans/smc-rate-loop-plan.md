@@ -1304,6 +1304,27 @@ PID/1次SMC基準で既に受容済みの同種の限界であり、新規退行
 不感バンド・STAという3つの新規機構）は、相互に矛盾なく共存しており、params.cppの
 パラメータ名重複も無いことを確認した。
 
+**追加点検（コードレビュー、実行せず静的確認）**:
+- **`IController`の11個の override が3アプリ全てで一致**（`compute`/`reset`/
+  `onModeChange`/`onLanding`/`onTakeoff`/`onTakeoffComplete`/`isTakeoffComplete`/
+  `setGuidanceTarget`/`isGuidanceActive`/`startExcitation`/`fetchSysidResult`）——
+  実装漏れなし
+- **`reset()`の状態網羅性**: `SlidingModeRate`（`integral`/`prev_error`/
+  `torque_ring_`系）・`SlidingModeVelocity`（同型、`accel_ring_`系）・
+  `SuperTwistingRate`（`integral`/`z`/`prev_error`）——いずれも保持する実行時状態を
+  全て`reset()`でクリアしていることをフィールド一覧と照合して確認。ゲイン類
+  （`k`/`eta`/`phi`等）はconfigであり`reset()`対象外で正しい
+- **param名の完全一致**: `smc_sta.*`（15個）・`smc.vel{x,y}.*`（12個）・
+  `smc.{roll,pitch,yaw}.{delay_comp_ms,s_deadband}`（6個）について、
+  `params.cpp`の宣言と各appの`get_float()`呼び出しを突き合わせ、全て一致
+  （タイプミス・未配線なし）
+- **`init()`/`reloadParams()`の網羅性**: 3アプリ全てで、両メソッドが対応する
+  `load*Params()`を漏れなく呼んでいることを確認（`smc_pos`は`loadRateSmcParams()`
+  ＋`loadVelSmcParams()`の2つを両方）
+- **ドキュメントの陳腐化を1件発見・修正**: `firmware/apps/smc_pos/README.md`が
+  §7.9の「実機投入見送り」決定を反映せず「SILS摂動族テストをクリアしてから実機投入」
+  という古い記述のままだった——修正しコミット
+
 ### 7.16 `smc_rate_sta`実機投入（2026-09-11）
 
 §7.14の3アーキタイプ同時検証を経て、ユーザー指示により`smc_rate_sta`（STA、

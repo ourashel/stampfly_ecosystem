@@ -76,8 +76,8 @@ sf app flash smc_pos -m
 | 委譲範囲 | 高度・**位置ループ**・離着陸フェーズ・誘導・トリム学習・DOB・ヘディングホールドは全て`PidController`委譲のまま — `architecture.md`のINV-1を壊さない |
 | 位置ループは無改造 | `pos_x_`/`pos_y_`（位置誤差→目標速度）は既存PIDのまま。速度ループ（目標速度→加速度）だけを差し替える |
 | **既にPIDで頑健化済み** | `position.vel.kp/ti`は実機プラント同定（`firmware/vehicle/docs/poshold_journey.md` §4）に基づき既に再設計・実機検証済み（K∈[2.8,7]で安定）。本appは「既存が壊れているから」ではなく、実測されたモータ非対称性（`docs/plans/smc-rate-loop-plan.md` §3.15）に対する追加ロバスト性をA/B/C比較で検証する目的で存在する |
-| 実機投入 | SILS摂動族テストをクリアし、ユーザーの明示的判断を得てから進める。`smc_rate`同様、初回はベンチ/テザー拘束・ACRO確認から |
 | ゲインの位置づけ | `params.cpp`の初期値はSILSチューニングの「出発点」であり飛行検証済みではない |
+| **実機投入: 見送り（2026-09-11、`docs/plans/smc-rate-loop-plan.md` §7.9）** | 素の速度ループSMCは安全だが既存PIDを明確に上回らず、本来の差別化要因だった無駄時間予測補償器も安全マージンが狭すぎると判明したため、これ以上の実機投入・チューニングは行わない。コードは参考実装として残す |
 
 ---
 
@@ -162,5 +162,5 @@ additive-only change with no effect on the default vehicle/smc_rate builds).
 | Delegation scope | Altitude, the **position loop**, takeoff/landing phases, guidance, trim learning, DOB, and heading hold all remain delegated to `PidController` — does not break `architecture.md`'s INV-1 |
 | Position loop unchanged | `pos_x_`/`pos_y_` (position error → target velocity) stays the existing PID. Only the velocity loop (target velocity → acceleration) is replaced |
 | **Already hardware-robustified** | `position.vel.kp/ti` was already redesigned and hardware-validated from a real plant identification (`firmware/vehicle/docs/poshold_journey.md` §4, stable over K∈[2.8,7]). This app does NOT exist because the baseline is known broken — it exists to A/B/C-test additional robustness against the measured motor asymmetry (`docs/plans/smc-rate-loop-plan.md` §3.15) against that already-robustified baseline |
-| Before real hardware | Clear the SILS perturbation-family sweep and get explicit user sign-off first. Same as `smc_rate`: start bench/tether-restrained, ACRO-only |
 | Gain status | The seed values in `params.cpp` are SILS-tuning starting points, not flight-validated gains |
+| **Real-hardware deployment: not pursued (2026-09-11, `docs/plans/smc-rate-loop-plan.md` §7.9)** | The bare velocity-loop SMC is safe but never clearly beat the existing PID, and the dead-time predictor that could have been the real differentiator turned out to have too narrow a safety margin. No further tuning or hardware deployment planned. Code kept as a reference implementation |
