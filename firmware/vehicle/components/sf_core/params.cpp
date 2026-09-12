@@ -998,78 +998,67 @@ namespace param_vars {
     // 壊滅的ではない元の0.05/0.05シードへ差し戻す。
     float smc_asta_roll_dead_band  = 0.05f;   // [rad/s] NEW parameter, unverified -- see revert note above
     float smc_asta_roll_filter_tau = 0.05f;   // [s] NEW parameter, unverified -- see revert note above
-    // mref_tau/mref_fast_tau/mref_slow_tau/mref_growth_ratio/mref_abs_floor/
-    // mref_shrink_ratio (2026-09-12, docs/plans/smc-rate-loop-plan.md
-    // section 7.33): REPLACES section 7.32's osc_tau/osc_thresh/
-    // osc_shrink_ratio zero-crossing-count gate. That gate fixed the
-    // original dead_band-only law's catastrophic divergence on pos_flight+
-    // motor-delay=15ms (tilt_max~39deg, duty_max=1.0, section 7.31続報3/4)
-    // but SILS found a second failure: near the end of a long POS_HOLD it
-    // false-triggered on a marginal/convergent limit cycle (not a genuine
-    // divergence) and shrank k1 at exactly the wrong moment, causing a
-    // motor-duty asymmetry and a hard "impact detected"/emergency disarm
-    // that the frozen smc_rate_sta baseline does not exhibit on the same
-    // scenario. A 4-point osc_thresh/osc_shrink_ratio sweep showed this
-    // is NOT a tunable trade-off (section 7.32): a raw crossing COUNT has
-    // no notion of "converged relative to what", so it cannot separate a
-    // divergent oscillation from a convergent one.
-    // §7.33 replaces the counter with a REFERENCE MODEL ([R11] in
-    // smc_rate_asta.hpp): a simple first-order lag per axis, driven by the
-    // same rate_sp, stands in for a healthy closed loop's ideal response.
-    // mref_tau is that model's own time constant. The model-following
-    // error is tracked with fast (mref_fast_tau) and slow (mref_slow_tau)
-    // leaky EMAs of its magnitude; when fast notably exceeds slow (by
-    // mref_growth_ratio, past the mref_abs_floor so two near-zero EMAs
-    // don't trigger on ratio noise), the actual response is judged to be
-    // diverging FROM THE MODEL (not just "s nonzero"), and k1 shrinks by
-    // mref_shrink_ratio -- same value/role as section 7.32's
-    // osc_shrink_ratio (missed detection costs far more than a false one).
-    // mref_tau=0.03s ~ a well-tuned rate loop's own dominant time constant;
-    // mref_fast_tau=0.05s reacts within roughly one C2-step timescale;
-    // mref_slow_tau=0.5s is the "recent normal" baseline (same order as
-    // section 7.32's osc_tau); mref_growth_ratio=1.5/mref_abs_floor=0.05
-    // require a clear, not marginal, gap. ALL SIX ARE SEED VALUES, NOT YET
-    // SILS-VALIDATED -- verify against pos_flight+motor-delay=15ms FIRST
-    // (all 4 numeric gates AND a clean scripted DISARM, not just the
-    // numeric gates -- section 7.32's near-miss was outside the checked
-    // window) before anything else (section 7.33 plan).
-    // mref_tau/mref_fast_tau/mref_slow_tau/mref_growth_ratio/
-    // mref_abs_floor/mref_shrink_ratio（2026-09-12、docs/plans/
-    // smc-rate-loop-plan.md §7.33）: §7.32のosc_tau/osc_thresh/
-    // osc_shrink_ratio（ゼロクロス計数ゲート）を置き換える。あのゲートは
-    // 元の不感帯のみの適応則がpos_flight+motor-delay=15msで壊滅的に発散する
-    // 問題（tilt_max~39°、duty_max=1.0、§7.31続報3/4）は解消したが、SILSで
-    // 第二の破綻が判明: 長時間POS_HOLD終盤で、限界的・収束気味の振動
-    // （真の発散ではない）に誤反応してk1をまさに悪いタイミングで縮小し、
-    // モータデューティの非対称・「衝撃検知」→緊急DISARMを招いた——凍結版
-    // smc_rate_staは同一シナリオでこれを示さない。osc_thresh/
-    // osc_shrink_ratioの4点実験で、これは調整可能なトレードオフではない
-    // ことを確認済み（§7.32）: 生のクロス「回数」は「何に対して収束して
-    // いるか」という概念を持たないため、発散的振動と収束的振動を区別
-    // できない。
-    // §7.33では計数器を**規範モデル**（smc_rate_asta.hppの[R11]）で置き
-    // 換える: 各軸に同じrate_spで駆動される単純な一次遅れモデルを置き、
-    // 健全な閉ループの理想応答の代役とする。mref_tauがそのモデル自身の
-    // 時定数。規範モデルへの追従誤差の大きさを速い（mref_fast_tau）・遅い
-    // （mref_slow_tau）2つの漏れ積分EMAで追跡し、速い方が遅い方を
-    // mref_growth_ratio倍（mref_abs_floorという絶対フロアを超えて——
-    // 両方が近ゼロのときにノイズで誤発火しないように）明確に上回ったとき
-    // だけ、実際の応答がモデルから発散していると判定し（単に「sが非ゼロ」
-    // ではなく）、k1をmref_shrink_ratioで縮小する——§7.32の
-    // osc_shrink_ratioと同じ値・同じ役割（見逃しのコストは誤検出より
-    // はるかに大きい）。mref_tau=0.03sは調整済みレートループ自身の支配的
-    // 時定数程度。mref_fast_tau=0.05sはC2ステップとほぼ同じ時間スケールで
-    // 反応。mref_slow_tau=0.5sは「最近の正常」基準（§7.32のosc_tauと同
-    // オーダー）。mref_growth_ratio=1.5・mref_abs_floor=0.05は、限界的で
-    // なく明確なギャップを要求する。6つ全てシード値のみ、SILS未検証——
-    // pos_flight+motor-delay=15msで最優先に検証すること（数値4ゲートに
-    // 加え、シナリオ台本通りのクリーンなDISARMも——§7.32の見逃しは
-    // 判定窓の外側で起きた）（§7.33のプラン参照）。
-    float smc_asta_roll_mref_tau          = 0.08f;  // 2026-09-12 tuned via SILS --param sweep, section 7.33 -- 0.03 was too fast (model~=setpoint, lost discriminating power)
-    float smc_asta_roll_mref_fast_tau     = 0.03f;  // 2026-09-12 tuned, section 7.33
-    float smc_asta_roll_mref_slow_tau     = 0.5f;
-    float smc_asta_roll_mref_growth_ratio = 1.2f;   // 2026-09-12 tuned, section 7.33
-    float smc_asta_roll_mref_abs_floor    = 0.02f;  // 2026-09-12 tuned, section 7.33
+    // mref_tau/mref_env_tau/mref_trend_floor/mref_shrink_ratio/
+    // mref_dwell_time (docs/plans/smc-rate-loop-plan.md sections 7.33-7.36):
+    // this app's design has gone through 3 divergence-detection mechanisms
+    // layered on the SAME reference model ([R11] in smc_rate_asta.hpp,
+    // unchanged since section 7.33 -- mref_tau is that model's own first-
+    // order time constant): section 7.32's zero-crossing count (fixed
+    // pos_flight+motor-delay=15ms's original tumble-class divergence,
+    // section 7.31続報3/4, but false-triggered on a marginal/convergent
+    // limit cycle late in a long POS_HOLD, causing a motor-duty asymmetry
+    // and emergency disarm the frozen smc_rate_sta baseline does not
+    // exhibit); section 7.33-7.35's fast/slow EMA AMPLITUDE ratio on the
+    // model-following error (fixed that, but a 3-condition SILS sweep
+    // found NO amplitude-ratio-plus-dwell-time setting satisfies both
+    // pos_flight+motor-delay=15ms's C2-step and stab_flight's plain
+    // no-disturbance flight -- raising sensitivity to catch the former
+    // always degraded the latter's att_rmse from ~2.7deg toward 3.3-3.6deg,
+    // gate <3.0deg, and a dwell delay long enough to filter stab_flight's
+    // chatter let the C2-step's drift_max regress from 1.75m PASS to
+    // 4.34m FAIL). Section 7.36 (current) replaces the ratio with a TREND
+    // test: mref_env_tau low-pass-filters |e_model| into a single
+    // "envelope", and mref_trend_floor is the minimum sustained growth
+    // RATE of that envelope (not its amplitude) required, held for
+    // mref_dwell_time, to call it "diverging" -- see smc_rate_asta.hpp's
+    // design-history comment for why an amplitude threshold cannot tell
+    // "elevated but stable" apart from "growing" while a trend test can.
+    // ALL FIVE (mref_tau/mref_env_tau/mref_trend_floor/mref_shrink_ratio/
+    // mref_dwell_time) ARE SEED VALUES, NOT YET SILS-VALIDATED -- verify
+    // against AT LEAST stab_flight nominal, pos_flight nominal, and
+    // pos_flight+motor-delay=15ms TOGETHER (not one at a time -- that
+    // single-condition-at-a-time mistake is what caused sections 7.34/7.35
+    // to chase the same trade-off across two different metrics without
+    // resolving it) before anything else (section 7.36 plan).
+    // mref_tau/mref_env_tau/mref_trend_floor/mref_shrink_ratio/
+    // mref_dwell_time（docs/plans/smc-rate-loop-plan.md §7.33〜7.36）:
+    // 本appの設計は、同じ規範モデル（smc_rate_asta.hppの[R11]、§7.33以来
+    // 無変更——mref_tauはそのモデル自身の一次遅れ時定数）の上に3つの発散
+    // 検知機構を積み重ねてきた: §7.32のゼロクロス計数（pos_flight+
+    // motor-delay=15msの当初の転倒級破綻(§7.31続報3/4)は解消したが、長時間
+    // POS_HOLD終盤の限界的・収束気味の極限サイクルに誤反応し、凍結版
+    // smc_rate_staには見られないモータデューティ非対称・緊急DISARMを招いた）；
+    // §7.33〜7.35の規範モデル追従誤差への速い/遅いEMA「振幅」比（それは
+    // 解消したが、3条件でのSILS一巡の結果、振幅比+猶予時間のどんな設定でも
+    // `pos_flight+motor-delay=15ms`のC2ステップと`stab_flight`の無擾乱飛行を
+    // 両立できないと判明——前者を捉える感度は必ず後者のatt_rmseを約2.7°から
+    // 3.3〜3.6°へ悪化させ(ゲート<3.0°)、後者のチャタリングを濾すだけの
+    // 猶予時間はC2ステップのdrift_maxを1.75m PASSから4.34m FAILへ後退させた）。
+    // §7.36（現行）ではその比率を**トレンド判定**で置き換える:
+    // mref_env_tauが|e_model|を単一の低域通過フィルタで「包絡線」にし、
+    // mref_trend_floorはその包絡線の（振幅ではなく）最小持続**成長率**——
+    // mref_dwell_time秒間保持されて初めて「発散」と判定する。振幅閾値では
+    // 「高いが安定」と「成長中」を区別できないが、トレンド判定ならできる、
+    // という理由はsmc_rate_asta.hppの設計変遷コメント参照。5つ全て
+    // （mref_tau/mref_env_tau/mref_trend_floor/mref_shrink_ratio/
+    // mref_dwell_time）シード値のみ、SILS未検証——最低`stab_flight`
+    // nominal・`pos_flight`nominal・`pos_flight+motor-delay=15ms`を**同時に**
+    // 検証すること（1条件ずつの検証が§7.34/7.35で同じトレードオフを別の
+    // 指標へ追いかけただけで解消できなかった原因）（§7.36のプラン参照）。
+    float smc_asta_roll_mref_tau         = 0.03f;   // 2026-09-12 reverted to original seed, section 7.36 -- mref_env_tau/mref_trend_floor now own the sensitivity, not this
+    float smc_asta_roll_mref_env_tau     = 0.25f;   // 2026-09-12 tuned via SILS 3-condition sweep, section 7.36 -- see smc_rate_asta.hpp's mref_env_tau comment
+    float smc_asta_roll_mref_env_base_tau = 0.6f;   // 2026-09-12 tuned, section 7.36 -- see smc_rate_asta.hpp's mref_env_base_tau comment
+    float smc_asta_roll_mref_trend_floor = 0.02f;   // 2026-09-12 added, section 7.36
     float smc_asta_roll_mref_shrink_ratio = 1.0f;   // 2026-09-12 tuned, section 7.33
     float smc_asta_roll_mref_dwell_time   = 0.06f;  // 2026-09-12 added, section 7.34 -- see smc_rate_asta.hpp's mref_dwell_time comment
     float smc_asta_roll_phi        = 0.02f;   // [rad/s] seed = smc_rate_sta current
@@ -1084,12 +1073,11 @@ namespace param_vars {
     float smc_asta_pitch_leak_ratio = 0.2f;
     float smc_asta_pitch_dead_band  = 0.05f;   // reverted, see roll's comment above
     float smc_asta_pitch_filter_tau = 0.05f;   // reverted, see roll's comment above
-    // mref_* -- see roll's comment above (2026-09-12, §7.33).
-    float smc_asta_pitch_mref_tau          = 0.08f;  // 2026-09-12 tuned, section 7.33
-    float smc_asta_pitch_mref_fast_tau     = 0.03f;  // 2026-09-12 tuned, section 7.33
-    float smc_asta_pitch_mref_slow_tau     = 0.5f;
-    float smc_asta_pitch_mref_growth_ratio = 1.2f;   // 2026-09-12 tuned, section 7.33
-    float smc_asta_pitch_mref_abs_floor    = 0.02f;  // 2026-09-12 tuned, section 7.33
+    // mref_* -- see roll's comment above (2026-09-12, §7.36).
+    float smc_asta_pitch_mref_tau          = 0.03f;  // 2026-09-12 reverted to original seed, section 7.36
+    float smc_asta_pitch_mref_env_tau     = 0.25f;  // 2026-09-12 tuned, section 7.36
+    float smc_asta_pitch_mref_env_base_tau = 0.6f;  // 2026-09-12 tuned, section 7.36
+    float smc_asta_pitch_mref_trend_floor = 0.02f;  // 2026-09-12 added, section 7.36
     float smc_asta_pitch_mref_shrink_ratio = 1.0f;   // 2026-09-12 tuned, section 7.33
     float smc_asta_pitch_mref_dwell_time   = 0.06f;  // 2026-09-12 added, section 7.34
     float smc_asta_pitch_phi        = 0.02f;
@@ -1104,12 +1092,11 @@ namespace param_vars {
     float smc_asta_yaw_leak_ratio = 0.2f;
     float smc_asta_yaw_dead_band  = 0.05f;
     float smc_asta_yaw_filter_tau = 0.05f;
-    // mref_* -- see roll's comment above (2026-09-12, §7.33).
-    float smc_asta_yaw_mref_tau          = 0.08f;  // 2026-09-12 tuned, section 7.33
-    float smc_asta_yaw_mref_fast_tau     = 0.03f;  // 2026-09-12 tuned, section 7.33
-    float smc_asta_yaw_mref_slow_tau     = 0.5f;
-    float smc_asta_yaw_mref_growth_ratio = 1.2f;   // 2026-09-12 tuned, section 7.33
-    float smc_asta_yaw_mref_abs_floor    = 0.02f;  // 2026-09-12 tuned, section 7.33
+    // mref_* -- see roll's comment above (2026-09-12, §7.36).
+    float smc_asta_yaw_mref_tau          = 0.03f;  // 2026-09-12 reverted to original seed, section 7.36
+    float smc_asta_yaw_mref_env_tau     = 0.25f;  // 2026-09-12 tuned, section 7.36
+    float smc_asta_yaw_mref_env_base_tau = 0.6f;  // 2026-09-12 tuned, section 7.36
+    float smc_asta_yaw_mref_trend_floor = 0.02f;  // 2026-09-12 added, section 7.36
     float smc_asta_yaw_mref_shrink_ratio = 1.0f;   // 2026-09-12 tuned, section 7.33
     float smc_asta_yaw_mref_dwell_time   = 0.06f;  // 2026-09-12 added, section 7.34
     float smc_asta_yaw_phi        = 0.04f;
@@ -1739,11 +1726,10 @@ static const ParamEntry table[] = {
     {"smc_asta.roll.leak_ratio", ParamType::FLOAT, &smc_asta_roll_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.roll.dead_band",  ParamType::FLOAT, &smc_asta_roll_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
     {"smc_asta.roll.filter_tau", ParamType::FLOAT, &smc_asta_roll_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
-    {"smc_asta.roll.mref_tau",          ParamType::FLOAT, &smc_asta_roll_mref_tau,          0.08f, 0.0f, 2.0f,   &notifyControllerReload},
-    {"smc_asta.roll.mref_fast_tau",     ParamType::FLOAT, &smc_asta_roll_mref_fast_tau,     0.03f, 0.0f, 2.0f,   &notifyControllerReload},
-    {"smc_asta.roll.mref_slow_tau",     ParamType::FLOAT, &smc_asta_roll_mref_slow_tau,     0.5f,  0.0f, 5.0f,   &notifyControllerReload},
-    {"smc_asta.roll.mref_growth_ratio", ParamType::FLOAT, &smc_asta_roll_mref_growth_ratio, 1.2f,  1.0f, 20.0f,  &notifyControllerReload},
-    {"smc_asta.roll.mref_abs_floor",    ParamType::FLOAT, &smc_asta_roll_mref_abs_floor,    0.02f, 0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.roll.mref_tau",          ParamType::FLOAT, &smc_asta_roll_mref_tau,          0.03f, 0.0f, 2.0f,   &notifyControllerReload},
+    {"smc_asta.roll.mref_env_tau",     ParamType::FLOAT, &smc_asta_roll_mref_env_tau,     0.25f, 0.0f, 2.0f,   &notifyControllerReload},
+    {"smc_asta.roll.mref_env_base_tau", ParamType::FLOAT, &smc_asta_roll_mref_env_base_tau, 0.6f, 0.0f, 3.0f,   &notifyControllerReload},
+    {"smc_asta.roll.mref_trend_floor", ParamType::FLOAT, &smc_asta_roll_mref_trend_floor, 0.02f, 0.0f, 10.0f,  &notifyControllerReload},
     {"smc_asta.roll.mref_shrink_ratio", ParamType::FLOAT, &smc_asta_roll_mref_shrink_ratio, 1.0f,  0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.roll.mref_dwell_time",   ParamType::FLOAT, &smc_asta_roll_mref_dwell_time,   0.06f, 0.0f, 1.0f,   &notifyControllerReload},
     {"smc_asta.roll.phi",        ParamType::FLOAT, &smc_asta_roll_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
@@ -1758,11 +1744,10 @@ static const ParamEntry table[] = {
     {"smc_asta.pitch.leak_ratio", ParamType::FLOAT, &smc_asta_pitch_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.pitch.dead_band",  ParamType::FLOAT, &smc_asta_pitch_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
     {"smc_asta.pitch.filter_tau", ParamType::FLOAT, &smc_asta_pitch_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
-    {"smc_asta.pitch.mref_tau",          ParamType::FLOAT, &smc_asta_pitch_mref_tau,          0.08f, 0.0f, 2.0f,   &notifyControllerReload},
-    {"smc_asta.pitch.mref_fast_tau",     ParamType::FLOAT, &smc_asta_pitch_mref_fast_tau,     0.03f, 0.0f, 2.0f,   &notifyControllerReload},
-    {"smc_asta.pitch.mref_slow_tau",     ParamType::FLOAT, &smc_asta_pitch_mref_slow_tau,     0.5f,  0.0f, 5.0f,   &notifyControllerReload},
-    {"smc_asta.pitch.mref_growth_ratio", ParamType::FLOAT, &smc_asta_pitch_mref_growth_ratio, 1.2f,  1.0f, 20.0f,  &notifyControllerReload},
-    {"smc_asta.pitch.mref_abs_floor",    ParamType::FLOAT, &smc_asta_pitch_mref_abs_floor,    0.02f, 0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.mref_tau",          ParamType::FLOAT, &smc_asta_pitch_mref_tau,          0.03f, 0.0f, 2.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.mref_env_tau",     ParamType::FLOAT, &smc_asta_pitch_mref_env_tau,     0.25f, 0.0f, 2.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.mref_env_base_tau", ParamType::FLOAT, &smc_asta_pitch_mref_env_base_tau, 0.6f, 0.0f, 3.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.mref_trend_floor", ParamType::FLOAT, &smc_asta_pitch_mref_trend_floor, 0.02f, 0.0f, 10.0f,  &notifyControllerReload},
     {"smc_asta.pitch.mref_shrink_ratio", ParamType::FLOAT, &smc_asta_pitch_mref_shrink_ratio, 1.0f,  0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.pitch.mref_dwell_time",   ParamType::FLOAT, &smc_asta_pitch_mref_dwell_time,   0.06f, 0.0f, 1.0f,   &notifyControllerReload},
     {"smc_asta.pitch.phi",        ParamType::FLOAT, &smc_asta_pitch_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
@@ -1777,11 +1762,10 @@ static const ParamEntry table[] = {
     {"smc_asta.yaw.leak_ratio", ParamType::FLOAT, &smc_asta_yaw_leak_ratio, 0.2f,  0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.yaw.dead_band",  ParamType::FLOAT, &smc_asta_yaw_dead_band,  0.05f, 0.0f, 5.0f,    &notifyControllerReload},
     {"smc_asta.yaw.filter_tau", ParamType::FLOAT, &smc_asta_yaw_filter_tau, 0.05f, 0.0f, 2.0f,    &notifyControllerReload},
-    {"smc_asta.yaw.mref_tau",          ParamType::FLOAT, &smc_asta_yaw_mref_tau,          0.08f, 0.0f, 2.0f,   &notifyControllerReload},
-    {"smc_asta.yaw.mref_fast_tau",     ParamType::FLOAT, &smc_asta_yaw_mref_fast_tau,     0.03f, 0.0f, 2.0f,   &notifyControllerReload},
-    {"smc_asta.yaw.mref_slow_tau",     ParamType::FLOAT, &smc_asta_yaw_mref_slow_tau,     0.5f,  0.0f, 5.0f,   &notifyControllerReload},
-    {"smc_asta.yaw.mref_growth_ratio", ParamType::FLOAT, &smc_asta_yaw_mref_growth_ratio, 1.2f,  1.0f, 20.0f,  &notifyControllerReload},
-    {"smc_asta.yaw.mref_abs_floor",    ParamType::FLOAT, &smc_asta_yaw_mref_abs_floor,    0.02f, 0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.mref_tau",          ParamType::FLOAT, &smc_asta_yaw_mref_tau,          0.03f, 0.0f, 2.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.mref_env_tau",     ParamType::FLOAT, &smc_asta_yaw_mref_env_tau,     0.25f, 0.0f, 2.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.mref_env_base_tau", ParamType::FLOAT, &smc_asta_yaw_mref_env_base_tau, 0.6f, 0.0f, 3.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.mref_trend_floor", ParamType::FLOAT, &smc_asta_yaw_mref_trend_floor, 0.02f, 0.0f, 10.0f,  &notifyControllerReload},
     {"smc_asta.yaw.mref_shrink_ratio", ParamType::FLOAT, &smc_asta_yaw_mref_shrink_ratio, 1.0f,  0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.yaw.mref_dwell_time",   ParamType::FLOAT, &smc_asta_yaw_mref_dwell_time,   0.06f, 0.0f, 1.0f,   &notifyControllerReload},
     {"smc_asta.yaw.phi",        ParamType::FLOAT, &smc_asta_yaw_phi,        0.04f, 0.001f, 2.0f,  &notifyControllerReload},

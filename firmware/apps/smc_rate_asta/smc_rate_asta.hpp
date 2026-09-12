@@ -171,7 +171,47 @@
  * 数値的に検証すべき仮説であり（docs/plans/smc-rate-loop-plan.md
  * §7.33）、保証ではない。
  *
- * @design docs/plans/smc-rate-loop-plan.md section 7.33 -- reference-model adaptive STA trial [--]
+ * --- Section 7.33 -> 7.36: from an amplitude ratio to a TREND test /
+ * セクション7.33→7.36: 振幅比からトレンド判定へ ---
+ * SILS across sections 7.33-7.35 established that section 7.33's fast/
+ * slow EMA RATIO (and section 7.34/7.35's dwell-time latch added on top
+ * of it) has no combination of thresholds that satisfies both
+ * stab_flight's plain no-disturbance flight and pos_flight+
+ * motor-delay=15ms's C2-step divergence at once: raising sensitivity
+ * enough to catch the C2 step's sustained growth also reacts to
+ * ordinary, BOUNDED (non-growing) chatter that is simply elevated in
+ * amplitude, and a dwell delay long enough to filter that chatter also
+ * delays the genuine reaction enough to let drift accumulate past its
+ * own gate (a 4-way comparison and multiple parameter sweeps, section
+ * 7.34/7.35). The common flaw: an amplitude threshold cannot distinguish
+ * "elevated but not growing" from "growing" -- both can sit above any
+ * fixed level. Section 7.36 replaces the ratio with a TREND test on a
+ * single low-pass envelope of |e_model|: is its DERIVATIVE persistently
+ * positive (mref_env_tau/mref_trend_floor), not merely is its current
+ * value large. This is closer in spirit to [R10]'s "driven by the
+ * appearance of chattering itself, not an arbitrary amplitude
+ * threshold" -- see compute()'s rationale comment and docs/plans/
+ * smc-rate-loop-plan.md section 7.36 for the full reasoning and SILS
+ * results (a hypothesis to verify numerically, not a guarantee).
+ * §7.33〜7.35のSILSで、§7.33の速い/遅いEMA「比率」（および§7.34/7.35で
+ * その上に追加した猶予時間ラッチ）には、`stab_flight`の無擾乱飛行と
+ * `pos_flight+motor-delay=15ms`のC2ステップ発散を同時に満たす閾値の
+ * 組み合わせが存在しないことが判明した: C2ステップの持続的な成長を
+ * 捉えるだけの感度を上げると、単に振幅が高いだけで**成長していない**
+ * 通常の有界なチャタリングにも反応してしまい、そのチャタリングを濾す
+ * だけの猶予時間は、真の反応を遅らせてドリフトが自身のゲートを超えるまで
+ * 蓄積させてしまう（§7.34/7.35の4系統比較・複数のパラメータ実験）。共通の
+ * 欠陥: 振幅閾値では「高いが成長していない」と「成長中」を区別できない
+ * ——どちらも同じ固定レベルを上回りうる。§7.36ではその比率を、|e_model|
+ * の単一低域通過フィルタ包絡線に対する**トレンド判定**で置き換える:
+ * 現在値の大きさではなく、その**微分**が持続的に正か（mref_env_tau/
+ * mref_trend_floor）を問う。これは[R10]の「任意の振幅閾値ではなく
+ * チャタリングの出現そのものに駆動される」という考え方により近い——
+ * 詳細な根拠とSILS結果はcompute()内のコメントとdocs/plans/
+ * smc-rate-loop-plan.md §7.36参照（数値的に検証すべき仮説であり、
+ * 保証ではない）。
+ *
+ * @design docs/plans/smc-rate-loop-plan.md section 7.36 -- trend-based reference-model adaptive STA trial [--]
  * @design controller.hpp -- IController interface (used via AppController)  [OK]
  *
  * References / 参考文献:
@@ -201,7 +241,11 @@
  *        self-tuning threshold based on chattering detection," Mechanical
  *        Systems and Signal Processing, 2025 (online). A gain-adaptation
  *        law driven directly by the appearance of chattering in the
- *        closed loop, rather than an arbitrary amplitude threshold.
+ *        closed loop, rather than an arbitrary amplitude threshold --
+ *        section 7.36's TREND test (is the model-following-error
+ *        envelope persistently growing, not merely large) is closer in
+ *        spirit to this "appearance, not amplitude" philosophy than
+ *        section 7.33-7.35's amplitude-ratio design was.
  *   [R11] W. Barreto da Silveira, P. J. D. de Oliveira Evald,
  *        G. V. Hollweg, D. M. C. Milbradt, R. V. Tambara, and
  *        H. A. Gruendling, "Robust Model Reference Adaptive Control With a
@@ -213,9 +257,12 @@
  *        MODEL-FOLLOWING error (measured output vs. the reference model's
  *        own state) and is reduced once the closed loop reaches steady
  *        state relative to that model, rather than by the raw sliding
- *        variable's amplitude or crossing count alone. THIS is the
- *        mechanism section 7.33 (and this file's compute()) implements
- *        below, replacing section 7.32's zero-crossing count.
+ *        variable's amplitude or crossing count alone. The REFERENCE MODEL
+ *        itself (section 7.33, unchanged through section 7.36) is this
+ *        file's use of [R11]; how the model-following error is turned
+ *        into a shrink decision has since moved from an amplitude ratio
+ *        (section 7.33-7.35) to a trend test (section 7.36, closer to
+ *        [R10]'s philosophy) -- see the design-history comment above.
  */
 
 #pragma once
@@ -260,40 +307,84 @@ struct AdaptiveSuperTwistingRate {
     // への追従誤差e_model = rate_meas - rate_modelを縮小判断へどう変換するか
     // を司る。
     float mref_tau          = 0.03f; // [s] reference model's own first-order time constant (target/ideal rate-loop response) -- SEED, SILS-unverified
-    float mref_fast_tau     = 0.05f; // [s] fast leaky-EMA time constant on |e_model| -- reacts within roughly one C2-step timescale
-    float mref_slow_tau     = 0.5f;  // [s] slow leaky-EMA time constant on |e_model| -- the "recent normal" baseline the fast EMA is compared against
-    float mref_growth_ratio = 1.5f;  // fast EMA must exceed slow EMA by this multiple (before mref_abs_floor is added) to judge "diverging"
-    float mref_abs_floor    = 0.05f; // [rad/s] additive floor so two near-zero EMAs (both quiet) don't trigger on ratio noise alone
+    // mref_env_tau/mref_trend_floor (section 7.36, REPLACES section 7.33's
+    // fast/slow EMA RATIO and section 7.34/7.35's dwell-time gate on that
+    // ratio -- see the file header's design-history comment for the full
+    // reasoning). Sections 7.33-7.35 established that "does the AMPLITUDE
+    // of |e_model| exceed a threshold" (whether instantaneous or dwell-
+    // latched) cannot be tuned to satisfy both a quiet no-disturbance
+    // flight and the C2-step divergence at once: any sensitivity high
+    // enough to catch the C2 step's SUSTAINED growth also reacts to
+    // ordinary bounded chatter (whose amplitude is elevated but NOT
+    // growing), and any dwell delay long enough to filter that chatter
+    // also delays the genuine reaction enough to let drift accumulate.
+    // The root issue is that an AMPLITUDE threshold cannot tell "elevated
+    // but stable" apart from "growing" -- both can sit above any fixed
+    // level. A TREND (derivative) test can: this instead asks whether the
+    // ENVELOPE of |e_model| (a single low-pass filter, mref_env_tau) is
+    // PERSISTENTLY INCREASING, not merely how large it currently is.
+    // During the C2 step, the envelope genuinely climbs for hundreds of ms
+    // (section 7.33's waveform investigation) -- its derivative stays
+    // positive throughout. During ordinary bounded chatter, the envelope
+    // itself is roughly flat (the chatter's amplitude isn't growing, only
+    // oscillating), so its derivative hovers near zero and does not stay
+    // positive for long. mref_trend_floor is a small positive floor on
+    // that derivative (a minimum growth RATE, not amplitude) so numerical
+    // noise near zero slope doesn't count as "growing".
+    // mref_env_tau/mref_trend_floor（§7.36、§7.33の速い/遅いEMA「比率」と
+    // §7.34/7.35のその比率への猶予時間ゲートを置き換える——詳細な理由は
+    // ファイル冒頭の設計変遷コメント参照）。§7.33〜7.35で、「|e_model|の
+    // **振幅**が閾値を超えるか」（瞬時判定でも猶予時間ラッチでも）では、
+    // 無擾乱の静かな飛行とC2ステップの発散を同時に満たすよう調整できない
+    // ことが判明した——C2ステップの持続的な成長を捉えるだけの感度は、
+    // 通常の有界なチャタリング（振幅は高いが**成長していない**）にも
+    // 反応してしまい、そのチャタリングを濾すだけの猶予時間は、真の反応を
+    // 遅らせてドリフトを蓄積させてしまう。根本問題は、振幅の閾値だけでは
+    // 「高いが安定」と「成長中」を区別できないことにある——どちらも同じ
+    // 固定レベルを上回りうる。**トレンド（微分）**判定ならこれを区別
+    // できる: 現在の大きさそのものではなく、|e_model|の「包絡線」（単一の
+    // 低域通過フィルタ、mref_env_tau）が**持続的に増加しているか**を
+    // 問う。C2ステップ中は包絡線が実際に何百ミリ秒にも渡って上昇し続ける
+    // （§7.33の波形調査）——微分はその間ずっと正のまま。通常の有界な
+    // チャタリングでは、包絡線自体はほぼ横ばい（チャタリングの振幅は
+    // 振動するだけで成長しない）なので、微分はゼロ近辺で推移し長くは
+    // 正を維持しない。mref_trend_floorはその微分（振幅ではなく**成長率**の
+    // 最小値）への小さな正のフロアで、ゼロ近傍の数値ノイズを「成長中」と
+    // 誤判定しないようにする。
+    float mref_env_tau      = 0.15f; // [s] low-pass time constant on |e_model| forming the "envelope" (e_model_env) whose trend is tested -- SEED, SILS-unverified
+    // mref_env_base_tau (added after SILS found a raw per-sample derivative
+    // of e_model_env is far too noisy at 400Hz -- dt~0.0025s in the
+    // denominator amplifies tiny cycle-to-cycle float noise into huge
+    // spurious "derivative" spikes, regardless of mref_env_tau). Instead
+    // of differentiating e_model_env directly, a SECOND, slower EMA of
+    // e_model_env itself (mref_env_base_tau) forms a smoothed BASELINE;
+    // (e_model_env - e_model_env_base) is a properly band-limited trend
+    // estimate (same principle as a "double EMA"/MACD indicator), not a
+    // noise-amplified instantaneous slope.
+    // mref_env_base_tau（SILSでe_model_envの1サンプルごとの生の微分が
+    // 400Hzでは過度にノイズが多いと判明したため追加——分母のdt~0.0025秒が
+    // 微小なサイクル毎の浮動小数点ノイズを巨大な偽の「微分」スパイクへ
+    // 増幅してしまう、mref_env_tauの値に関わらず）。e_model_envを直接
+    // 微分する代わりに、e_model_env自体のさらに遅い第二のEMA
+    // （mref_env_base_tau）で平滑化した基準値を作り、
+    // (e_model_env - e_model_env_base)を適切に帯域制限されたトレンド
+    // 推定値とする（「二重EMA」/MACD指標と同じ原理）——ノイズを増幅した
+    // 瞬時傾きではない。
+    float mref_env_base_tau = 0.4f;  // [s] EMA time constant smoothing e_model_env itself, forming the trend baseline -- SEED, SILS-unverified
+    float mref_trend_floor  = 0.02f; // [rad/s] minimum (e_model_env - e_model_env_base) gap to count as "growing" -- SEED, SILS-unverified
     float mref_shrink_ratio = 0.5f;  // decay rate while diverging, as a fraction of adapt_rate (independent of leak_ratio) -- same role/value as section 7.32's osc_shrink_ratio
-    // mref_dwell_time (section 7.34, added after a 3-condition SILS sweep
-    // found NO single mref_tau/mref_fast_tau/mref_growth_ratio/
-    // mref_abs_floor/mref_shrink_ratio combination satisfies both
-    // pos_flight+motor-delay=15ms's C2-step (needs a sensitive gate) and
-    // stab_flight's plain no-disturbance flight (any sensitivity increase
-    // -- via mref_tau, or via mref_fast_tau/growth/floor/shrink -- raised
-    // att_rmse from ~2.7deg to ~3.3-3.6deg, gate <3.0deg): an instantaneous
-    // "fast EMA exceeds slow EMA" test cannot tell a single-cycle noise/
-    // chatter blip (common during ordinary tracking) from a genuinely
-    // sustained divergence (which, per the section 7.33 waveform
-    // investigation, grows over MANY cycles during the C2 step) -- both
-    // can momentarily satisfy the same instantaneous threshold. Requiring
-    // the threshold to hold continuously for mref_dwell_time before
-    // acting filters out the former while still catching the latter
-    // (which stays elevated far longer than this dwell window).
-    // mref_dwell_time（§7.34、3条件でのSILS一巡の結果、単一の
-    // mref_tau/mref_fast_tau/mref_growth_ratio/mref_abs_floor/
-    // mref_shrink_ratioの組み合わせでは`pos_flight+motor-delay=15ms`の
-    // C2ステップ（高感度なゲートが必要）と`stab_flight`の無擾乱飛行
-    // （mref_tau経由でもmref_fast_tau/growth/floor/shrink経由でも、
-    // 感度を上げるとatt_rmseが約2.7°→3.3〜3.6°へ悪化、ゲート<3.0°）を
-    // 両立できないと判明したため追加）: 「速いEMAが遅いEMAを上回る」の
-    // 瞬時判定では、通常の追従で普通に起きる単発ノイズ/チャタリングの
-    // 一過性のブレと、真に持続的な発散（§7.33の波形調査によればC2
-    // ステップでは何サイクルにも渡って成長し続ける）を区別できない——
-    // どちらも同じ瞬時閾値を一瞬満たしうる。閾値がmref_dwell_time秒間
-    // 連続して満たされて初めて反応することで、前者を除去しつつ後者
-    // （この猶予窓よりはるかに長く高止まりする）は依然検知できる。
-    float mref_dwell_time   = 0.06f; // [s] threshold must hold continuously this long before "diverging" latches -- SEED, SILS-unverified
+    // mref_dwell_time (section 7.34/7.35, reused here for the trend test):
+    // require the envelope's derivative to stay above mref_trend_floor
+    // CONTINUOUSLY for mref_dwell_time before latching "diverging" -- a
+    // brief single-cycle positive-slope blip (numerical noise on an
+    // otherwise-flat envelope) should not by itself count as sustained
+    // growth.
+    // mref_dwell_time（§7.34/7.35、ここではトレンド判定に再利用）:
+    // 包絡線の微分がmref_trend_floorを上回る状態がmref_dwell_time秒間
+    // **連続**して初めて「発散」をラッチする——一過性の1サイクルだけの
+    // 正の傾き（本来ほぼ横ばいな包絡線上の数値ノイズ）だけでは持続的な
+    // 成長とみなさない。
+    float mref_dwell_time   = 0.06f; // [s] the growing condition must hold continuously this long before "diverging" latches -- SEED, SILS-unverified
 
     // --- Same-as-smc_rate_sta.hpp parameters / smc_rate_sta.hppと同じパラメータ ---
     float phi      = 0.02f; // [rad/s] sign() smoothing width (numerical only -- see smc_rate_sta.hpp)
@@ -310,23 +401,24 @@ struct AdaptiveSuperTwistingRate {
     // independently), PLUS a low-pass filtered SIGNED s (NOT |s|) used
     // ONLY for the dead-band decision (see filter_tau below and its use in
     // compute() for why filtering s, not |s|, matters), PLUS the
-    // reference-model state (rate_model) and its fast/slow model-following
-    // error EMAs used for the divergence gate (see mref_* above).
+    // reference-model state (rate_model) and its model-following-error
+    // envelope (and that envelope's own previous sample, to form its
+    // trend) used for the divergence gate (see mref_* above).
     // 状態: smc_rate_sta.hppと同じ2つの積分状態、加えて適応k1自体
     // （k2はk1から毎サイクル導出、独立には保持しない）、加えて不感帯判定
     // 専用の低域通過フィルタ済み**符号付き**s（|s|ではない、下のfilter_tau・
     // compute()内のなぜsをフィルタすべきかの説明参照）、加えて規範モデルの
-    // 状態（rate_model）と、発散ゲートに使う追従誤差の速い/遅いEMA
-    // （mref_*参照）。
+    // 状態（rate_model）と、発散ゲートに使う追従誤差の包絡線（そのトレンド
+    // を作るための直前サンプルも）（mref_*参照）。
     float integral   = 0;
     float z          = 0;
     float prev_error = 0;
     float k1         = 30.0f;  // current adaptive gain -- reset() seeds this from k1_init
     float s_lpf      = 0;      // low-pass filtered SIGNED s (not |s|!), for the dead-band decision only -- see compute()'s rationale comment
-    float rate_model   = 0;    // reference model's own state (an idealized rate_meas, driven by rate_sp) -- see mref_tau
-    float e_model_fast = 0;    // fast leaky EMA of |e_model| -- see mref_fast_tau
-    float e_model_slow = 0;    // slow leaky EMA of |e_model| -- see mref_slow_tau
-    float mref_dwell_timer = 0; // [s] how long the divergence threshold has held continuously -- see mref_dwell_time
+    float rate_model      = 0; // reference model's own state (an idealized rate_meas, driven by rate_sp) -- see mref_tau
+    float e_model_env      = 0; // low-pass "envelope" of |e_model| -- see mref_env_tau
+    float e_model_env_base = 0; // slower EMA of e_model_env itself, forming the trend baseline -- see mref_env_base_tau
+    float mref_dwell_timer = 0; // [s] how long (e_model_env - e_model_env_base) has stayed above mref_trend_floor continuously -- see mref_dwell_time
 
     /// Compute the adaptive super-twisting torque output / 適応スーパーツイスティング・トルク出力を計算
     /// @param rate_sp    Target angular rate [rad/s] / 目標角速度
@@ -400,32 +492,39 @@ struct AdaptiveSuperTwistingRate {
         // 決める——速いゼロ平均のチャタリングを平均化できる程度に大きく、
         // 実外乱には即座に反応できる程度に小さく。
         //
-        // --- Reference-model divergence gate (docs/plans/smc-rate-loop-
-        // plan.md section 7.33, [R11]; supersedes section 7.32's zero-
-        // crossing count -- see file header's design-history comment for
-        // why): a non-adaptive first-order model, driven by the SAME
-        // rate_sp, stands in for how a healthy closed loop should respond.
-        // Its model-following error e_model = rate_meas - rate_model is
-        // tracked with a fast and a slow leaky EMA of |e_model|. When the
-        // fast EMA meaningfully exceeds the slow one (a real, fast-forming
-        // gap between "recent" and "current" tracking quality -- not just
-        // e_model being nonzero, which it always is to some degree), the
-        // actual response is judged to be diverging FROM THE REFERENCE
-        // MODEL's ideal trajectory, and k1 is forced to shrink -- even if
-        // |LPF(s)| is still above dead_band, same priority rule section
-        // 7.32 used for its (now superseded) oscillation flag.
-        // --- 規範モデルによる発散ゲート（docs/plans/smc-rate-loop-plan.md
-        // §7.33、[R11]；§7.32のゼロクロス計数を置き換える——理由はファイル
-        // 冒頭の設計変遷コメント参照）: 本コントローラと同じrate_spで駆動
-        // される非適応の一次遅れモデルが、健全な閉ループならどう応答すべき
-        // かの代役を果たす。その規範モデルへの追従誤差
-        // e_model = rate_meas - rate_modelの絶対値を、速い/遅い2つの漏れ
-        // 積分EMAで追跡する。速い方が遅い方を明確に上回ったとき（「最近」と
-        // 「今」の追従品質の間に実際に急速なギャップが生じている——単に
-        // e_modelが非ゼロというだけではない、これは常にある程度非ゼロ）、
-        // 実際の応答が規範モデルの理想軌道から発散していると判定し、k1を
-        // 強制的に縮小する——|LPF(s)|が不感帯を超えていても、§7.32の
-        // （今は置き換えられた）発振フラグと同じ優先ルールに従う。
+        // --- Reference-model TREND divergence gate (docs/plans/smc-rate-
+        // loop-plan.md section 7.36; REPLACES section 7.33-7.35's fast/
+        // slow EMA amplitude ratio -- see file header's design-history
+        // comment for the full reasoning): a non-adaptive first-order
+        // model, driven by the SAME rate_sp, stands in for how a healthy
+        // closed loop should respond. Its model-following error
+        // e_model = rate_meas - rate_model is low-pass filtered into a
+        // single "envelope" e_model_env (mref_env_tau). Rather than asking
+        // whether that envelope's AMPLITUDE exceeds a threshold (which
+        // cannot tell "elevated but stable" from "growing"), this asks
+        // whether its DERIVATIVE has stayed positive (above
+        // mref_trend_floor) continuously for mref_dwell_time -- i.e.
+        // whether the tracking error is PERSISTENTLY GROWING, not just
+        // currently large. Only then is the actual response judged to be
+        // diverging FROM THE REFERENCE MODEL's ideal trajectory, and k1 is
+        // forced to shrink -- even if |LPF(s)| is still above dead_band,
+        // same priority rule section 7.32 used for its (now superseded)
+        // oscillation flag.
+        // --- 規範モデルによる「トレンド」発散ゲート（docs/plans/
+        // smc-rate-loop-plan.md §7.36；§7.33〜7.35の速い/遅いEMA振幅比を
+        // 置き換える——詳細な理由はファイル冒頭の設計変遷コメント参照）:
+        // 本コントローラと同じrate_spで駆動される非適応の一次遅れモデルが、
+        // 健全な閉ループならどう応答すべきかの代役を果たす。その規範
+        // モデルへの追従誤差e_model = rate_meas - rate_modelを単一の低域
+        // 通過フィルタで「包絡線」e_model_env（mref_env_tau）にする。その
+        // 包絡線の**振幅**が閾値を超えるか（「高いが安定」と「成長中」を
+        // 区別できない）ではなく、その**微分**がmref_trend_floorを上回る
+        // 状態がmref_dwell_time秒間連続して続いたか——つまり追従誤差が
+        // 単に今大きいだけでなく**持続的に成長し続けているか**を問う。
+        // これが真のときだけ、実際の応答が規範モデルの理想軌道から発散
+        // していると判定し、k1を強制的に縮小する——|LPF(s)|が不感帯を
+        // 超えていても、§7.32の（今は置き換えられた）発振フラグと同じ
+        // 優先ルールに従う。
         if (dt > 0) {
             const float alpha_model = dt / (mref_tau + dt);
             rate_model += alpha_model * (rate_sp - rate_model);
@@ -433,51 +532,43 @@ struct AdaptiveSuperTwistingRate {
         const float e_model = rate_meas - rate_model;
         const float abs_e_model = fabsf(e_model);
         if (dt > 0) {
-            const float alpha_fast = dt / (mref_fast_tau + dt);
-            const float alpha_slow = dt / (mref_slow_tau + dt);
-            e_model_fast += alpha_fast * (abs_e_model - e_model_fast);
-            e_model_slow += alpha_slow * (abs_e_model - e_model_slow);
+            const float alpha_env = dt / (mref_env_tau + dt);
+            e_model_env += alpha_env * (abs_e_model - e_model_env);
+            // Double-EMA trend baseline: a SLOWER EMA of e_model_env
+            // itself, not of abs_e_model directly -- see mref_env_base_tau
+            // comment for why a raw per-sample derivative was abandoned.
+            // 二重EMAのトレンド基準値: abs_e_modelそのものではなく
+            // e_model_env自体へのより遅いEMA——生の1サンプル微分を
+            // 放棄した理由はmref_env_base_tauのコメント参照。
+            const float alpha_base = dt / (mref_env_base_tau + dt);
+            e_model_env_base += alpha_base * (e_model_env - e_model_env_base);
         }
-        const bool over_thresh = e_model_fast > (mref_growth_ratio * e_model_slow + mref_abs_floor);
-        // Dwell-time latch (section 7.34) -- see mref_dwell_time's
-        // rationale comment above: only treat this as a genuine
-        // divergence once the instantaneous threshold has held
-        // continuously for mref_dwell_time, filtering out single-cycle
-        // noise/chatter blips that would otherwise false-trigger a shrink
-        // during ordinary, undisturbed tracking.
-        // 猶予時間ラッチ（§7.34）-- 上のmref_dwell_timeの根拠コメント参照:
-        // 瞬時閾値がmref_dwell_time秒間連続で満たされて初めて真の発散と
-        // みなす——さもなければ通常の無擾乱追従中の単発ノイズ/チャタリング
-        // のブレでシュリンクが誤発火してしまう。
+        // Trend estimate [rad/s]: e_model_env leads e_model_env_base
+        // whenever |e_model| is climbing (e_model_env_base always lags
+        // behind, tracking where e_model_env WAS a while ago); the gap
+        // stays near zero once |e_model| plateaus, even at a high
+        // amplitude -- this is what distinguishes it from an amplitude
+        // threshold. "growing" gates the dwell timer, same latch pattern
+        // as section 7.34/7.35 (and its bug fix: the timer alone, without
+        // also requiring "growing" at the check site, would be trivially
+        // satisfied at mref_dwell_time=0).
+        // トレンド推定値 [rad/s]: |e_model|が上昇し続けている間は
+        // e_model_envがe_model_env_baseに先行する（e_model_env_baseは
+        // 常に少し前のe_model_envの値を遅れて追う）；|e_model|が高い振幅で
+        // 高止まりしただけなら差はゼロ近辺に収束する——これが振幅閾値との
+        // 違い。「成長中」がdwellタイマーをゲートする——§7.34/7.35と同じ
+        // ラッチパターン（そのバグ修正も踏襲: チェック時点で「成長中」
+        // 自体も要求しないと、mref_dwell_time=0でタイマー条件だけが自明に
+        // 満たされてしまう）。
+        const bool growing = (e_model_env - e_model_env_base) > mref_trend_floor;
         if (dt > 0) {
-            if (over_thresh) {
+            if (growing) {
                 mref_dwell_timer += dt;
             } else {
                 mref_dwell_timer = 0;
             }
         }
-        // NOTE (section 7.34 bug fix): must also require over_thresh
-        // itself here -- "mref_dwell_timer >= mref_dwell_time" ALONE is
-        // trivially true at mref_dwell_time=0 even while over_thresh is
-        // false (mref_dwell_timer resets to exactly 0, and 0>=0), making
-        // mref_dwell_time=0 degenerate into "always diverging" instead of
-        // "trigger immediately on the first over_thresh cycle" as
-        // intended. Found via SILS: mref_dwell_time=0 produced a WORSE
-        // stab_flight att_rmse (3.74deg) than even a large, fully-
-        // suppressing dwell (3.05deg) -- the opposite of what an
-        // instant-trigger reduction should do -- which is what exposed
-        // this off-by-one-at-the-boundary condition.
-        // 注記（§7.34のバグ修正）: ここではover_thresh自体も要求しなければ
-        // ならない——「mref_dwell_timer >= mref_dwell_time」だけでは、
-        // mref_dwell_time=0のときover_thresh=falseでも自明に真になって
-        // しまう（mref_dwell_timerはちょうど0にリセットされ、0>=0は真）。
-        // これによりmref_dwell_time=0が「最初のover_threshサイクルで即座に
-        // 発火」という意図ではなく「常時発散扱い」に退化してしまっていた。
-        // SILSで発覚: mref_dwell_time=0のstab_flightのatt_rmse（3.74°）が、
-        // 発散を完全抑制する大きなdwell（3.05°）よりも悪化しており——
-        // 即時判定への短縮が悪化を招くのは矛盾している——この境界条件の
-        // バグが露呈した。
-        const bool diverging = over_thresh && (mref_dwell_timer >= mref_dwell_time);
+        const bool diverging = growing && (mref_dwell_timer >= mref_dwell_time);
 
         if (dt > 0) {
             const float alpha_filt = dt / (filter_tau + dt);
@@ -587,9 +678,9 @@ struct AdaptiveSuperTwistingRate {
         prev_error    = 0;
         k1            = k1_init;
         s_lpf         = 0;
-        rate_model    = 0;
-        e_model_fast  = 0;
-        e_model_slow  = 0;
+        rate_model       = 0;
+        e_model_env      = 0;
+        e_model_env_base = 0;
         mref_dwell_timer = 0;
     }
 };
