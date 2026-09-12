@@ -108,10 +108,22 @@ class PID:
         return max(-self.output_limit, min(self.output_limit, out))
 
 
+# ESKF accel-comp alpha-beta tracker (eskf_core.cpp updateFlowRaw, production
+# gains, params.cpp): estimates horizontal kinematic acceleration a_kin from
+# flow-derived velocity, at the flow task's own 100Hz rate. §7.30続報6 found
+# its ACCELERATION state has a large lag/gain (-70deg/-336ms, 3.6x) at the
+# observed oscillation frequency -- unlike its velocity state (~5ms, negligible).
+ACCEL_COMP_ALPHA = 0.2
+ACCEL_COMP_BETA = 0.02
+ACCEL_COMP_MAX = 5.0     # [m/s^2] clamp on a_kin (eskf.accel_comp.max)
+FLOW_DT = 0.01           # 100Hz flow task rate
+
+
 def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
                       vel_gains=VEL_GAINS, pos_gains=POS_GAINS,
                       T=40.0, x0=0.03, dt=DT, verbose_every=None,
-                      att_est_delay=0.0, att_est_gain=1.0):
+                      att_est_delay=0.0, att_est_gain=1.0,
+                      use_accel_comp_model=False, att_corr_gain=0.0):
     """Full 4-stage nonlinear discrete-time POS_HOLD cascade, roll/Y axis only.
 
     position -> velocity -> attitude -> rate -> (motor lag + dead time) ->
@@ -121,12 +133,21 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
 
     att_est_delay/att_est_gain: optional attitude-ESTIMATOR stage between the
     true physical roll and the value fed to the attitude PID (roll_est =
-    delay(roll, att_est_delay) * att_est_gain), modeling the ESKF's own
-    attitude-estimate dynamics -- directly measured from trajectory.csv's
-    roll vs roll_est columns (§7.30続報4: ~40ms lag, ~0.71 amplitude ratio
-    at the observed oscillation frequency) rather than assumed. Default OFF
-    (0 delay, unity gain -- the attitude PID sees the true roll exactly, as
-    in all earlier passes of this script).
+    delay(roll, att_est_delay) * att_est_gain) -- the §7.30続報4 fixed-
+    delay/gain APPROXIMATION of the ESKF's attitude-estimate dynamics.
+    Ignored when use_accel_comp_model=True (they model the same thing, at
+    different levels of fidelity -- don't combine).
+
+    use_accel_comp_model/att_corr_gain: §7.30続報6 mechanistic replacement
+    for att_est_delay/att_est_gain. Models roll_est as gyro-rate integration
+    (fast/accurate, as in the real ESKF) PLUS a slow complementary correction
+    toward the accel-inferred roll (accel_body_y - a_kin)/G, where a_kin is
+    the REAL eskf_core.cpp alpha-beta tracker's acceleration state (driven by
+    the flow-derived velocity, updated at its native 100Hz). att_corr_gain is
+    the correction bandwidth [1/s] (an effective Kalman-gain stand-in -- the
+    real ESKF's covariance-based gain isn't reproduced here); try a few
+    values, there's no single "correct" one without instrumenting the real
+    ESKF directly. Default OFF (0 gain -- attitude PID sees true roll exactly).
 
     Returns dict of time series (t, roll_sp, roll, rate_sp, rate, vy_sp, vy, py).
     """
@@ -148,11 +169,19 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
     rate = 0.0        # actual roll rate [rad/s]
     torque_lag_state = 0.0   # first-order-lag internal state [Nm]
 
+    # accel-comp alpha-beta tracker state (§7.30続報6) + gyro-integrated
+    # attitude estimate under the mechanistic model
+    flow_vel_lpf = 0.0
+    a_kin = 0.0
+    roll_est_mech = 0.0
+    flow_cycle_dt = 0.0    # time accumulator -> drive the tracker at 100Hz
+
     t_arr = np.empty(n)
     roll_sp_arr = np.empty(n); roll_arr = np.empty(n)
     rate_sp_arr = np.empty(n); rate_arr = np.empty(n)
     vy_sp_arr = np.empty(n); vy_arr = np.empty(n)
     py_arr = np.empty(n)
+    roll_est_arr = np.empty(n); a_kin_arr = np.empty(n)
 
     alpha_lag = dt / (T_SILS + dt)   # discrete first-order lag coefficient
 
@@ -162,10 +191,33 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
         ay_ned = vel_pid.compute(vy_sp, vy, dt)
         roll_sp = ay_ned / G
         roll_sp = max(-MAX_POS_TILT, min(MAX_POS_TILT, roll_sp))
-        # attitude-loop feedback: the ESKF estimate (delayed+attenuated true
-        # roll), not the true roll directly -- see att_est_delay/att_est_gain.
-        roll_est_buf.append(roll)
-        roll_est = roll_est_buf.pop(0) * att_est_gain
+
+        if use_accel_comp_model:
+            # accel-comp alpha-beta tracker: runs at its native 100Hz (flow
+            # task rate), driven by the flow-derived velocity -- §7.30続報4
+            # found flow's OWN velocity estimate tracks true vy with
+            # negligible lag (~10ms), so vy (true) stands in for it here.
+            flow_cycle_dt += dt
+            if flow_cycle_dt >= FLOW_DT - 1e-9:
+                flow_cycle_dt = 0.0
+                vp = flow_vel_lpf + a_kin * FLOW_DT
+                r = vy - vp
+                flow_vel_lpf = vp + ACCEL_COMP_ALPHA * r
+                a_kin += (ACCEL_COMP_BETA / FLOW_DT) * r
+                a_kin = max(-ACCEL_COMP_MAX, min(ACCEL_COMP_MAX, a_kin))
+            # accel-attitude complementary correction: gyro-integrate roll_est
+            # (fast/accurate) plus a slow pull toward the accel-inferred roll
+            # after subtracting the (possibly-lagging) a_kin compensation.
+            accel_body_y = G * np.sin(roll)            # true specific force
+            roll_from_accel = (accel_body_y - a_kin) / G
+            roll_est_mech += dt * (rate + att_corr_gain * (roll_from_accel - roll_est_mech))
+            roll_est = roll_est_mech
+        else:
+            # §7.30続報4 fixed delay/gain approximation (unchanged from
+            # earlier passes of this script).
+            roll_est_buf.append(roll)
+            roll_est = roll_est_buf.pop(0) * att_est_gain
+
         rate_sp = att_pid.compute(roll_sp, roll_est, dt)
         torque_cmd = rate_pid.compute(rate_sp, rate, dt)
 
@@ -187,10 +239,12 @@ def simulate_cascade(rate_gains=RATE_GAINS, att_gains=ATT_GAINS,
         rate_sp_arr[k] = rate_sp; rate_arr[k] = rate
         vy_sp_arr[k] = vy_sp; vy_arr[k] = vy
         py_arr[k] = py
+        roll_est_arr[k] = roll_est; a_kin_arr[k] = a_kin
 
     return dict(t=t_arr, roll_sp=roll_sp_arr, roll=roll_arr,
                 rate_sp=rate_sp_arr, rate=rate_arr,
-                vy_sp=vy_sp_arr, vy=vy_arr, py=py_arr)
+                vy_sp=vy_sp_arr, vy=vy_arr, py=py_arr,
+                roll_est=roll_est_arr, a_kin=a_kin_arr)
 
 
 def fit_pole(t, x, t_skip=5.0):
