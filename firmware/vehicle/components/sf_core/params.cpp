@@ -998,6 +998,45 @@ namespace param_vars {
     // 壊滅的ではない元の0.05/0.05シードへ差し戻す。
     float smc_asta_roll_dead_band  = 0.05f;   // [rad/s] NEW parameter, unverified -- see revert note above
     float smc_asta_roll_filter_tau = 0.05f;   // [s] NEW parameter, unverified -- see revert note above
+    // osc_tau/osc_thresh/osc_shrink_ratio (2026-09-12, docs/plans/
+    // smc-rate-loop-plan.md section 7.32): added after the dead_band-only
+    // adaptive law was found to catastrophically diverge on pos_flight+
+    // motor-delay=15ms (tilt_max~39deg, duty_max=1.0 -- a tumble-class
+    // failure, section 7.31続報3/4) regardless of dead_band/filter_tau.
+    // Root cause: the dead-band law can't tell a sustained disturbance
+    // bias (should grow k1) from delay-driven OSCILLATORY divergence
+    // (should shrink k1 -- growing it there erodes phase margin and feeds
+    // a runaway). This counts s's zero-crossings (Wang et al. 2022 [R9]'s
+    // idea in smc_rate_asta.hpp, applied to GATE growth) to distinguish
+    // the two and forces k1 to shrink when s is judged oscillating,
+    // regardless of dead_band. osc_tau=0.3s ~ half the rate loop's own
+    // period (~0.6s at its ~10rad/s crossover, section 7.30系列);
+    // osc_thresh=2 crossings within that window (period < ~0.3s judged
+    // oscillatory); osc_shrink_ratio=0.5 is more aggressive than
+    // leak_ratio's default 0.2 -- a missed detection (tumble) costs far
+    // more than a false one (briefly under-gained). ALL THREE ARE SEED
+    // VALUES, NOT YET SILS-VALIDATED -- verify against pos_flight+
+    // motor-delay=15ms FIRST before anything else (section 7.32 plan).
+    // osc_tau/osc_thresh/osc_shrink_ratio（2026-09-12、docs/plans/
+    // smc-rate-loop-plan.md §7.32）: 不感帯のみの適応則が、dead_band/
+    // filter_tauに関わらずpos_flight+motor-delay=15msで壊滅的に発散する
+    // （tilt_max~39°、duty_max=1.0——転倒級破綻、§7.31続報3/4）ことが
+    // 判明したため追加。根本原因: 不感帯則は持続的な外乱バイアス（k1を
+    // 増やすべき）とむだ時間駆動の**発振的**発散（k1を減らすべき——
+    // そこで増やすと位相余裕が悪化し暴走を助長する）を区別できない。
+    // sのゼロクロスを計数する（smc_rate_asta.hppのWang et al. 2022 [R9]の
+    // 着想、ここでは成長の「ゲーティング」に応用）ことで両者を区別し、
+    // 発振と判定されればdead_bandに関わらずk1を強制的に縮小する。
+    // osc_tau=0.3sはレートループ自身の周期（クロスオーバー~10rad/sで
+    // 約0.6秒、§7.30系列）の半分程度。osc_thresh=2はその窓内で2回以上の
+    // クロス（周期0.3秒未満を発振と判定）。osc_shrink_ratio=0.5は
+    // leak_ratioの既定0.2より積極的——見逃し（転倒）のコストが誤検出
+    // （一時的なゲイン不足）よりはるかに大きいため。3つともシード値のみ、
+    // SILS未検証——pos_flight+motor-delay=15msで最優先に検証すること
+    // （§7.32のプラン参照）。
+    float smc_asta_roll_osc_tau          = 0.3f;
+    float smc_asta_roll_osc_thresh       = 2.0f;
+    float smc_asta_roll_osc_shrink_ratio = 0.5f;
     float smc_asta_roll_phi        = 0.02f;   // [rad/s] seed = smc_rate_sta current
     float smc_asta_roll_lambda_i   = 6.0f;    // [1/s] seed = smc_rate_sta current
     float smc_asta_roll_e_reset    = 0.75f;   // [rad/s] seed = smc_rate_sta current
@@ -1010,6 +1049,10 @@ namespace param_vars {
     float smc_asta_pitch_leak_ratio = 0.2f;
     float smc_asta_pitch_dead_band  = 0.05f;   // reverted, see roll's comment above
     float smc_asta_pitch_filter_tau = 0.05f;   // reverted, see roll's comment above
+    // osc_tau/osc_thresh/osc_shrink_ratio -- see roll's comment above (2026-09-12, §7.32).
+    float smc_asta_pitch_osc_tau          = 0.3f;
+    float smc_asta_pitch_osc_thresh       = 2.0f;
+    float smc_asta_pitch_osc_shrink_ratio = 0.5f;
     float smc_asta_pitch_phi        = 0.02f;
     float smc_asta_pitch_lambda_i   = 6.0f;
     float smc_asta_pitch_e_reset    = 0.75f;
@@ -1022,6 +1065,10 @@ namespace param_vars {
     float smc_asta_yaw_leak_ratio = 0.2f;
     float smc_asta_yaw_dead_band  = 0.05f;
     float smc_asta_yaw_filter_tau = 0.05f;
+    // osc_tau/osc_thresh/osc_shrink_ratio -- see roll's comment above (2026-09-12, §7.32).
+    float smc_asta_yaw_osc_tau          = 0.3f;
+    float smc_asta_yaw_osc_thresh       = 2.0f;
+    float smc_asta_yaw_osc_shrink_ratio = 0.5f;
     float smc_asta_yaw_phi        = 0.04f;
     float smc_asta_yaw_lambda_i   = 1.25f;
     float smc_asta_yaw_e_reset    = 1.5f;
@@ -1649,6 +1696,9 @@ static const ParamEntry table[] = {
     {"smc_asta.roll.leak_ratio", ParamType::FLOAT, &smc_asta_roll_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.roll.dead_band",  ParamType::FLOAT, &smc_asta_roll_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
     {"smc_asta.roll.filter_tau", ParamType::FLOAT, &smc_asta_roll_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.roll.osc_tau",          ParamType::FLOAT, &smc_asta_roll_osc_tau,          0.3f, 0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.roll.osc_thresh",       ParamType::FLOAT, &smc_asta_roll_osc_thresh,       2.0f, 0.0f, 20.0f,  &notifyControllerReload},
+    {"smc_asta.roll.osc_shrink_ratio", ParamType::FLOAT, &smc_asta_roll_osc_shrink_ratio, 0.5f, 0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.roll.phi",        ParamType::FLOAT, &smc_asta_roll_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.roll.lambda_i",   ParamType::FLOAT, &smc_asta_roll_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.roll.e_reset",    ParamType::FLOAT, &smc_asta_roll_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
@@ -1661,6 +1711,9 @@ static const ParamEntry table[] = {
     {"smc_asta.pitch.leak_ratio", ParamType::FLOAT, &smc_asta_pitch_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.pitch.dead_band",  ParamType::FLOAT, &smc_asta_pitch_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
     {"smc_asta.pitch.filter_tau", ParamType::FLOAT, &smc_asta_pitch_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.osc_tau",          ParamType::FLOAT, &smc_asta_pitch_osc_tau,          0.3f, 0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.osc_thresh",       ParamType::FLOAT, &smc_asta_pitch_osc_thresh,       2.0f, 0.0f, 20.0f,  &notifyControllerReload},
+    {"smc_asta.pitch.osc_shrink_ratio", ParamType::FLOAT, &smc_asta_pitch_osc_shrink_ratio, 0.5f, 0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.pitch.phi",        ParamType::FLOAT, &smc_asta_pitch_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.pitch.lambda_i",   ParamType::FLOAT, &smc_asta_pitch_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.pitch.e_reset",    ParamType::FLOAT, &smc_asta_pitch_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
@@ -1673,6 +1726,9 @@ static const ParamEntry table[] = {
     {"smc_asta.yaw.leak_ratio", ParamType::FLOAT, &smc_asta_yaw_leak_ratio, 0.2f,  0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.yaw.dead_band",  ParamType::FLOAT, &smc_asta_yaw_dead_band,  0.05f, 0.0f, 5.0f,    &notifyControllerReload},
     {"smc_asta.yaw.filter_tau", ParamType::FLOAT, &smc_asta_yaw_filter_tau, 0.05f, 0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.yaw.osc_tau",          ParamType::FLOAT, &smc_asta_yaw_osc_tau,          0.3f, 0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.osc_thresh",       ParamType::FLOAT, &smc_asta_yaw_osc_thresh,       2.0f, 0.0f, 20.0f,  &notifyControllerReload},
+    {"smc_asta.yaw.osc_shrink_ratio", ParamType::FLOAT, &smc_asta_yaw_osc_shrink_ratio, 0.5f, 0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.yaw.phi",        ParamType::FLOAT, &smc_asta_yaw_phi,        0.04f, 0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.yaw.lambda_i",   ParamType::FLOAT, &smc_asta_yaw_lambda_i,   1.25f, 0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.yaw.e_reset",    ParamType::FLOAT, &smc_asta_yaw_e_reset,    1.5f,  0.0f, 5.0f,    &notifyControllerReload},

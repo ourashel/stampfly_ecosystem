@@ -73,6 +73,9 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc_asta.roll.leak_ratio", sta_roll_.leak_ratio);
     sf::params::get_float("smc_asta.roll.dead_band",  sta_roll_.dead_band);
     sf::params::get_float("smc_asta.roll.filter_tau", sta_roll_.filter_tau);
+    sf::params::get_float("smc_asta.roll.osc_tau",          sta_roll_.osc_tau);
+    sf::params::get_float("smc_asta.roll.osc_thresh",       sta_roll_.osc_thresh);
+    sf::params::get_float("smc_asta.roll.osc_shrink_ratio", sta_roll_.osc_shrink_ratio);
     sf::params::get_float("smc_asta.roll.phi",        sta_roll_.phi);
     sf::params::get_float("smc_asta.roll.lambda_i",   sta_roll_.lambda_i);
     sf::params::get_float("smc_asta.roll.e_reset",    sta_roll_.e_reset);
@@ -85,6 +88,9 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc_asta.pitch.leak_ratio", sta_pitch_.leak_ratio);
     sf::params::get_float("smc_asta.pitch.dead_band",  sta_pitch_.dead_band);
     sf::params::get_float("smc_asta.pitch.filter_tau", sta_pitch_.filter_tau);
+    sf::params::get_float("smc_asta.pitch.osc_tau",          sta_pitch_.osc_tau);
+    sf::params::get_float("smc_asta.pitch.osc_thresh",       sta_pitch_.osc_thresh);
+    sf::params::get_float("smc_asta.pitch.osc_shrink_ratio", sta_pitch_.osc_shrink_ratio);
     sf::params::get_float("smc_asta.pitch.phi",        sta_pitch_.phi);
     sf::params::get_float("smc_asta.pitch.lambda_i",   sta_pitch_.lambda_i);
     sf::params::get_float("smc_asta.pitch.e_reset",    sta_pitch_.e_reset);
@@ -97,6 +103,9 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc_asta.yaw.leak_ratio", sta_yaw_.leak_ratio);
     sf::params::get_float("smc_asta.yaw.dead_band",  sta_yaw_.dead_band);
     sf::params::get_float("smc_asta.yaw.filter_tau", sta_yaw_.filter_tau);
+    sf::params::get_float("smc_asta.yaw.osc_tau",          sta_yaw_.osc_tau);
+    sf::params::get_float("smc_asta.yaw.osc_thresh",       sta_yaw_.osc_thresh);
+    sf::params::get_float("smc_asta.yaw.osc_shrink_ratio", sta_yaw_.osc_shrink_ratio);
     sf::params::get_float("smc_asta.yaw.phi",        sta_yaw_.phi);
     sf::params::get_float("smc_asta.yaw.lambda_i",   sta_yaw_.lambda_i);
     sf::params::get_float("smc_asta.yaw.e_reset",    sta_yaw_.e_reset);

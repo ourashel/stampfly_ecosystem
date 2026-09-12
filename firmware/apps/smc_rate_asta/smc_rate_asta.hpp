@@ -113,6 +113,23 @@
  *   [R7] F. Plestan, Y. Shtessel, V. Bregeault, and A. Poznyak, "New
  *        methodologies for adaptive sliding mode control," International
  *        Journal of Control, vol. 83, no. 9, pp. 1907-1919, 2010.
+ *   [R8] Y. Shtessel, M. Taleb, and F. Plestan, "A novel adaptive-gain
+ *        supertwisting sliding mode controller: Methodology and
+ *        application," Automatica, vol. 48, no. 5, pp. 759-769, 2012.
+ *        doi:10.1016/j.automatica.2012.02.024.
+ *   [R9] Y. Wang, W. Zhang, Y. Yang, C. Xue, S. Yuan, and H. Zhang,
+ *        "Adaptive Second-Order Sliding Mode Control of Buck Converters
+ *        with Multi-Disturbances," Energies, vol. 15, no. 14, p. 5139,
+ *        2022. doi:10.3390/en15145139. -- counts sliding-surface
+ *        zero-crossings online to drive a time-varying gain; the basis for
+ *        this file's oscillation-gating mechanism (docs/plans/
+ *        smc-rate-loop-plan.md section 7.32).
+ *   [R10] "New methodology for adaptive sliding mode control with
+ *        self-tuning threshold based on chattering detection," Mechanical
+ *        Systems and Signal Processing, 2025 (online). A gain-adaptation
+ *        law driven directly by the appearance of chattering in the
+ *        closed loop, rather than an arbitrary amplitude threshold --
+ *        same design family as this file's oscillation gate.
  */
 
 #pragma once
@@ -141,6 +158,39 @@ struct AdaptiveSuperTwistingRate {
     float dead_band  = 0.05f;  // [rad/s] filtered-|s| threshold below which k1 is considered "converged" and decays
     float filter_tau = 0.05f;  // [s] low-pass time constant on |s| BEFORE the dead-band comparison -- see compute()'s rationale comment
 
+    // --- Oscillation-gating parameters (docs/plans/smc-rate-loop-plan.md
+    // section 7.32, added after §7.31続報3/4's SILS finding: the dead-band
+    // law above cannot tell a SUSTAINED disturbance bias (torque-
+    // authority=0.4, where growing k1 helps) from an OSCILLATORY,
+    // delay-driven divergence (pos_flight+motor-delay=15ms, where growing
+    // k1 makes phase margin worse and feeds a runaway loop -- SILS showed
+    // duty_max=1.0 saturation and tilt_max~39deg, a tumble-class failure).
+    // Both raise |s|, but a real disturbance biases s in ONE direction
+    // while delay-driven instability makes s cross zero repeatedly with
+    // growing amplitude -- literature basis: Wang et al. 2022 [R9] counts
+    // sliding-surface zero-crossings online to drive a time-varying gain
+    // in an adaptive 2nd-order (twisting) law; this reuses that idea to
+    // GATE growth instead of driving it, prioritized ABOVE the dead-band
+    // decision (see compute()). [R8]'s adaptive-gain STA and [R10]'s
+    // chattering-detection-driven gain law are the same family of "don't
+    // let the gain overestimate/oscillate" design.
+    // --- 発振ゲーティングパラメータ（docs/plans/smc-rate-loop-plan.md
+    // §7.32、§7.31続報3/4のSILS発見を受けて追加: 上の不感帯則は、持続的な
+    // 外乱バイアス（torque-authority=0.4、k1を増やすと助けになる）と、
+    // むだ時間駆動の発振的発散（pos_flight+motor-delay=15ms、k1を増やすと
+    // 位相余裕が悪化し暴走する——SILSでduty_max=1.0飽和・tilt_max~39°の
+    // 転倒級破綻を確認）を区別できない。どちらも|s|を上げるが、実外乱は
+    // sを一方向に偏らせ、遅延駆動の不安定化はsが振幅を増しながら符号を
+    // 繰り返し反転させる——文献的根拠: Wang et al. 2022 [R9]はスライディング
+    // 面のゼロクロス点をオンライン計数し適応2次（twisting）則の時変ゲインを
+    // 駆動する。本設計はこの着想を「駆動」ではなく「ゲーティング（成長の
+    // 抑止）」に転用し、不感帯判定より優先する（compute()参照）。[R8]の
+    // 適応STAゲイン・[R10]のチャタリング検知駆動則も「ゲインを過大推定・
+    // 発振させない」という同系統の設計思想。
+    float osc_tau          = 0.3f;  // [s] decay time constant of cross_ema (crossing-rate window)
+    float osc_thresh       = 2.0f;  // cross_ema threshold above which s is judged "oscillating"
+    float osc_shrink_ratio = 0.5f;  // decay rate while oscillating, as a fraction of adapt_rate (independent of leak_ratio)
+
     // --- Same-as-smc_rate_sta.hpp parameters / smc_rate_sta.hppと同じパラメータ ---
     float phi      = 0.02f; // [rad/s] sign() smoothing width (numerical only -- see smc_rate_sta.hpp)
     float lambda_i = 0;     // [1/s] PI-surface integral gain on s itself (0 = textbook STA on s=e)
@@ -165,6 +215,8 @@ struct AdaptiveSuperTwistingRate {
     float prev_error = 0;
     float k1         = 30.0f;  // current adaptive gain -- reset() seeds this from k1_init
     float s_lpf      = 0;      // low-pass filtered SIGNED s (not |s|!), for the dead-band decision only -- see compute()'s rationale comment
+    float prev_sign_s = 0;     // sign(s) from the previous cycle, for zero-crossing detection (0 = not yet initialized)
+    float cross_ema   = 0;     // leaky zero-crossing-rate indicator (see osc_tau/osc_thresh above)
 
     /// Compute the adaptive super-twisting torque output / 適応スーパーツイスティング・トルク出力を計算
     /// @param rate_sp    Target angular rate [rad/s] / 目標角速度
@@ -237,17 +289,53 @@ struct AdaptiveSuperTwistingRate {
         // それを直接反映する。filter_tauがこの切り分けの時間スケールを
         // 決める——速いゼロ平均のチャタリングを平均化できる程度に大きく、
         // 実外乱には即座に反応できる程度に小さく。
+        // --- Oscillation gate (docs/plans/smc-rate-loop-plan.md section
+        // 7.32): count zero-crossings of s (via a leaky EMA, Wang et al.
+        // 2022 [R9]'s idea, applied here to GATE growth rather than drive
+        // it directly). A sustained disturbance bias makes s settle on one
+        // side of zero -- crossings stay rare. Delay-driven divergence
+        // (pos_flight+motor-delay=15ms, §7.31続報3/4's tumble-class
+        // failure) makes s swing across zero repeatedly with growing
+        // amplitude -- crossings become frequent. When "oscillating" is
+        // true, k1 is forced to shrink EVEN IF |LPF(s)| is still above
+        // dead_band, because in that regime growing k1 is exactly what
+        // feeds the runaway (less phase margin -> bigger swings -> still
+        // "not converged" by the dead-band's amplitude-only view).
+        // --- 発振ゲート（docs/plans/smc-rate-loop-plan.md §7.32）: sの
+        // ゼロクロス回数を漏れ積分EMAで計数する（Wang et al. 2022 [R9]の
+        // 着想を、ここでは直接駆動でなく成長の「ゲーティング」に応用）。
+        // 持続的な外乱バイアスはsをゼロの片側に留め、クロスは稀のまま。
+        // 遅延駆動の発散（pos_flight+motor-delay=15ms、§7.31続報3/4の
+        // 転倒級破綻）はsが振幅を増しながら繰り返しゼロを跨ぐ——クロスが
+        // 頻発する。「発振中」と判定されたら、|LPF(s)|が不感帯を超えて
+        // いてもk1を強制的に縮小する——この領域ではk1を増やすことこそが
+        // 暴走を助長する（位相余裕低下→振幅増大→不感帯の振幅だけを見る
+        // 判定では依然「未収束」に見える、という悪循環になるため）。
+        const float sign_s_now = (s_trial > 0.0f) ? 1.0f
+                                : (s_trial < 0.0f) ? -1.0f : prev_sign_s;
+        const bool crossed_zero = (prev_sign_s != 0.0f) && (sign_s_now != prev_sign_s);
+
         if (dt > 0) {
             const float alpha_filt = dt / (filter_tau + dt);
             s_lpf += alpha_filt * (s_trial - s_lpf);
 
-            const float k1_dot = (fabsf(s_lpf) > dead_band)
-                ? adapt_rate
-                : -adapt_rate * leak_ratio;
+            cross_ema -= cross_ema * (dt / osc_tau);
+            if (crossed_zero) cross_ema += 1.0f;
+            const bool oscillating = cross_ema > osc_thresh;
+
+            float k1_dot;
+            if (oscillating) {
+                k1_dot = -adapt_rate * osc_shrink_ratio;
+            } else if (fabsf(s_lpf) > dead_band) {
+                k1_dot = adapt_rate;
+            } else {
+                k1_dot = -adapt_rate * leak_ratio;
+            }
             k1 += k1_dot * dt;
             if (k1 < k1_min) k1 = k1_min;
             if (k1 > k1_max) k1 = k1_max;
         }
+        prev_sign_s = sign_s_now;
         const float k2 = k2_ratio * k1;
 
         // Trial STA torque at the trial integral states -- "trial" because
@@ -330,11 +418,13 @@ struct AdaptiveSuperTwistingRate {
     /// 始まるように）。
     void reset()
     {
-        integral   = 0;
-        z          = 0;
-        prev_error = 0;
-        k1         = k1_init;
-        s_lpf      = 0;
+        integral    = 0;
+        z           = 0;
+        prev_error  = 0;
+        k1          = k1_init;
+        s_lpf       = 0;
+        prev_sign_s = 0;
+        cross_ema   = 0;
     }
 };
 
