@@ -2518,6 +2518,94 @@ accel-comp ON/OFF比較）を経て、「observed 1.73秒振動の直接的な�
 `posdiag`ログ箇所A/B/C、`eskf_core.cpp`の箇所D）は残置——次の調査でも
 流用できる。
 
+### 7.31 適応スイッチングゲイン付きSTA（`smc_rate_asta`）の試行
+
+ユーザー提案「スライディングモード制御から適応スライディングモード制御に
+変更することは有効だろうか」を受け、§3.7で見つかった非単調トレードオフ
+（`torque-authority=0.4/0.55`の頑健性を上げるゲインが`motor-delay=15ms`で
+転倒を招く）に対し、適応スイッチングゲインを試した。**`smc_rate_sta`自体は
+ユーザー指示により最終版として無変更のまま、新規app`firmware/apps/
+smc_rate_asta`として実装**（`sf app new`で雛形作成、`smc_rate_sta`を
+ベースにコピー・改変）。
+
+**制御則**: 既存STA（`s=e+λ_i∫e dt`, `u1=k1√|s|sign(s)`, `z̊=-k2sign(s)`)の
+構造を維持し、`k1`をPlestan型適応則[R7]でオンライン更新（`k2=k2_ratio・k1`で
+連動）。実際に検証対象としたのは、`smc_rate_sta`の固定ゲイン（k1=60/k2=30、
+§7.14で最終決定）が§7.14時点で未解決のまま残していた
+`stab_flight+torque-authority=0.4`（att_rmse=3.44°）と`stab_flight+noise n1`
+（att_rmse=4.72°）——どちらもゲート<3.0°でFAIL。
+
+**ラウンド1（デフォルトシード, k1_max=150）**: 8ケース比較（固定STA/適応STA
+×nominal/torque-authority=0.4/noise n1/motor-delay=15ms）——
+
+| 条件 | 固定STA | 適応STA(既定) |
+|---|---|---|
+| nominal | 2.75° PASS | 2.86° PASS |
+| torque-authority=0.4 | 4.05° FAIL | 4.59° FAIL(悪化) |
+| noise n1 | 4.74° FAIL | **2.99° PASS(大幅改善)** |
+| motor-delay=15ms | 1.95° PASS | 2.52° PASS |
+
+**ラウンド2（`k1_max`調整）**: `k1_max=90`（150から）が単独で
+`torque-authority=0.4`をPASS（2.99°）に転じさせたが、`pos_flight`/
+`stab_combined_aggressive`等の回帰確認では健全（§7.13の壊滅的破綻の
+再発なし）だった一方、**`noise n1`が新規に4.99°FAILへ悪化**——固定ゲインの
+`k1_max`という1パラメータに、固定ゲインSTAと同型の非単調トレードオフが
+形を変えて残った。`dead_band`を広げる緩和策（0.08/0.10/0.15）や
+`leak_ratio`調整も試したが、いずれもtorque-authorityの改善効果を弱める
+だけでnoiseの改善にはつながらなかった。
+
+**ラウンド3（不感帯判定の平滑化、ユーザー指示「不感帯の判定方法自体を
+変え、ASMCではパラメータを再度同定しなおす」）**: `|s|`を低域通過フィルタ
+（新規状態`s_abs_lpf`、新規パラメータ`filter_tau`）してから`dead_band`と
+比較する方式に変更——持続外乱（フィルタ後も高いまま）とセンサノイズ
+（フィルタで均される）を時間構造で分離する狙い。`filter_tau`∈
+{0.02,0.05,0.1,0.2,0.5}を掃引（k1_max=150のまま）:
+
+| filter_tau | torque-authority=0.4 | noise n1 | motor-delay=15ms | combined+delay |
+|---|---|---|---|---|
+| 0.02 | 3.21° FAIL | 4.72° FAIL | 2.01° PASS | 4.97° PASS |
+| 0.05 | 3.78° FAIL | 5.06° FAIL | 2.54° PASS | 3.65° PASS |
+| 0.10 | 3.73° FAIL | 4.35°FAIL(最良) | 1.65° PASS | 4.59° PASS |
+| 0.20 | 3.13°FAIL(最良) | 4.75° FAIL | 1.54° PASS | 3.78° PASS |
+| 0.50 | 3.74° FAIL | 6.09° FAIL(最悪) | 1.42°PASS(最良) | 2.13°PASS(最良) |
+
+ユーザー指摘「フィルタ上げ過ぎるとロバスト性が犠牲になる」を検証するため
+`motor-delay=15ms`と`stab_combined_aggressive+motor-delay=15ms`も全`filter_
+tau`値で確認したが、**この2条件はfilter_tauの値に関わらず常にPASSし、
+むしろ大きいほど改善する傾向**だった——懸念とは逆の結果。一方
+`torque-authority=0.4`・`noise n1`はどちらもfilter_tauの値に対し非単調
+（単調な改善ではない）で、いずれの値でも両方は満たせなかった。
+
+**`k1_max=90`と`filter_tau`の組み合わせ**（0.05/0.1/0.2）も試したが、
+**全6ケースで`k1_max=90`単体（フィルタ無し、2.99°PASS）より悪化**
+（torque-authority=3.32-3.78°、noise=4.42-5.22°、いずれもFAIL）——
+フィルタの導入自体が反応を全体的に鈍らせる副作用の方が大きく、狙った
+「ノイズと持続外乱の時間構造による分離」は実現できなかった。
+
+**結論**: 3ラウンド・合計40回超のSILS実行を経て、`torque-authority=0.4`と
+`noise n1`を同時にPASSさせる`smc_rate_asta`のパラメータ設定は**見つから
+なかった**。単純な一次LPFによる不感帯平滑化は、この2条件の外乱を時間
+構造だけでは十分に分離できていない——`torque-authority`（定常的な差動
+トルク効き低下）と`noise n1`（センサノイズ）の両方が、レートループの
+帯域（§7.30で確認した1.7Hz程度）に近い時間スケールで`|s|`に影響して
+いる可能性がある。**適応則自体（Plestan型のgrow/decay二値則）、あるいは
+不感帯という枠組み自体の限界**が今回の到達点——`k1_max=90`単体（固定STAに
+対しtorque-authorityのみ改善、noiseは同程度）が現状の最良設定。
+
+**現時点の判断**: `smc_rate_sta`（固定ゲイン、最終版）は無変更のまま
+維持。`smc_rate_asta`は実機投入水準には未到達——さらなる設計変更
+（不感帯以外の適応則、あるいは異なる適応スキーム）が必要か、ここで
+一旦区切るかはユーザーと相談。
+
+**変更ファイル**:
+- `firmware/apps/smc_rate_asta/smc_rate_asta.hpp` — `s_abs_lpf`状態と
+  `filter_tau`パラメータを追加、不感帯判定を生の`|s|`からフィルタ後の
+  値に変更
+- `firmware/apps/smc_rate_asta/app_controller.cpp` — `filter_tau`の
+  param読み込みを追加
+- `firmware/vehicle/components/sf_core/params.cpp` —
+  `smc_asta.{roll,pitch,yaw}.filter_tau`を追加
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて

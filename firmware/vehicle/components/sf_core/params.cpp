@@ -950,6 +950,24 @@ namespace param_vars {
     float smc_asta_roll_adapt_rate = 20.0f;   // [1/s, same units as k1] NEW parameter, unverified
     float smc_asta_roll_leak_ratio = 0.2f;    // NEW parameter, unverified
     float smc_asta_roll_dead_band  = 0.05f;   // [rad/s] NEW parameter, unverified
+    // filter_tau (2026-09-12, docs/plans/smc-rate-loop-plan.md section
+    // 7.31続報): a RAW-|s| dead-band could not satisfy both
+    // torque-authority=0.4 (needs k1 to grow) and noise n1 (should NOT grow
+    // k1) with a single k1_max -- lowering k1_max fixed torque-authority
+    // but broke noise n1, and widening dead_band to compensate broke
+    // torque-authority instead. Filtering |s| BEFORE the dead-band
+    // comparison (smc_rate_asta.hpp's s_abs_lpf) separates the two by time
+    // structure: sustained disturbance keeps the filtered value elevated,
+    // noise's brief spikes average out. 0.05s seed -- SILS-tune from here.
+    // filter_tau（2026-09-12、docs/plans/smc-rate-loop-plan.md §7.31続報）:
+    // 生の|s|での不感帯判定では、単一のk1_maxでtorque-authority=0.4
+    // （k1を成長させたい）とnoise n1（成長させたくない）を両立できなかった
+    // ——k1_maxを下げるとtorque-authorityは直るがnoise n1が壊れ、代わりに
+    // dead_bandを広げるとtorque-authorityが壊れた。不感帯判定の前に|s|を
+    // フィルタする（smc_rate_asta.hppのs_abs_lpf）ことで、時間構造の違いで
+    // 両者を分離する: 持続外乱はフィルタ後の値を高く保つが、ノイズの
+    // 一瞬のスパイクは平均化される。0.05sをシードとしSILSでチューニング。
+    float smc_asta_roll_filter_tau = 0.05f;   // [s] NEW parameter, unverified
     float smc_asta_roll_phi        = 0.02f;   // [rad/s] seed = smc_rate_sta current
     float smc_asta_roll_lambda_i   = 6.0f;    // [1/s] seed = smc_rate_sta current
     float smc_asta_roll_e_reset    = 0.75f;   // [rad/s] seed = smc_rate_sta current
@@ -961,6 +979,7 @@ namespace param_vars {
     float smc_asta_pitch_adapt_rate = 20.0f;
     float smc_asta_pitch_leak_ratio = 0.2f;
     float smc_asta_pitch_dead_band  = 0.05f;
+    float smc_asta_pitch_filter_tau = 0.05f;
     float smc_asta_pitch_phi        = 0.02f;
     float smc_asta_pitch_lambda_i   = 6.0f;
     float smc_asta_pitch_e_reset    = 0.75f;
@@ -972,6 +991,7 @@ namespace param_vars {
     float smc_asta_yaw_adapt_rate = 5.0f;    // scaled down from roll/pitch by ~yaw's k1/roll's k1
     float smc_asta_yaw_leak_ratio = 0.2f;
     float smc_asta_yaw_dead_band  = 0.05f;
+    float smc_asta_yaw_filter_tau = 0.05f;
     float smc_asta_yaw_phi        = 0.04f;
     float smc_asta_yaw_lambda_i   = 1.25f;
     float smc_asta_yaw_e_reset    = 1.5f;
@@ -1598,6 +1618,7 @@ static const ParamEntry table[] = {
     {"smc_asta.roll.adapt_rate", ParamType::FLOAT, &smc_asta_roll_adapt_rate, 20.0f,  0.0f, 1000.0f, &notifyControllerReload},
     {"smc_asta.roll.leak_ratio", ParamType::FLOAT, &smc_asta_roll_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.roll.dead_band",  ParamType::FLOAT, &smc_asta_roll_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.roll.filter_tau", ParamType::FLOAT, &smc_asta_roll_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.roll.phi",        ParamType::FLOAT, &smc_asta_roll_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.roll.lambda_i",   ParamType::FLOAT, &smc_asta_roll_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.roll.e_reset",    ParamType::FLOAT, &smc_asta_roll_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
@@ -1609,6 +1630,7 @@ static const ParamEntry table[] = {
     {"smc_asta.pitch.adapt_rate", ParamType::FLOAT, &smc_asta_pitch_adapt_rate, 20.0f,  0.0f, 1000.0f, &notifyControllerReload},
     {"smc_asta.pitch.leak_ratio", ParamType::FLOAT, &smc_asta_pitch_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.pitch.dead_band",  ParamType::FLOAT, &smc_asta_pitch_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.filter_tau", ParamType::FLOAT, &smc_asta_pitch_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.pitch.phi",        ParamType::FLOAT, &smc_asta_pitch_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.pitch.lambda_i",   ParamType::FLOAT, &smc_asta_pitch_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.pitch.e_reset",    ParamType::FLOAT, &smc_asta_pitch_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
@@ -1620,6 +1642,7 @@ static const ParamEntry table[] = {
     {"smc_asta.yaw.adapt_rate", ParamType::FLOAT, &smc_asta_yaw_adapt_rate, 5.0f,  0.0f, 1000.0f, &notifyControllerReload},
     {"smc_asta.yaw.leak_ratio", ParamType::FLOAT, &smc_asta_yaw_leak_ratio, 0.2f,  0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.yaw.dead_band",  ParamType::FLOAT, &smc_asta_yaw_dead_band,  0.05f, 0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.yaw.filter_tau", ParamType::FLOAT, &smc_asta_yaw_filter_tau, 0.05f, 0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.yaw.phi",        ParamType::FLOAT, &smc_asta_yaw_phi,        0.04f, 0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.yaw.lambda_i",   ParamType::FLOAT, &smc_asta_yaw_lambda_i,   1.25f, 0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.yaw.e_reset",    ParamType::FLOAT, &smc_asta_yaw_e_reset,    1.5f,  0.0f, 5.0f,    &notifyControllerReload},
