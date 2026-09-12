@@ -797,6 +797,27 @@ ControlOutput PidController::compute(
     gyro_rate.y = state.angular_rate[1];
     gyro_rate.z = state.angular_rate[2];
 
+    // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md §7.30続報5) --
+    // block C: yaw is the one axis blocks A/B don't cover (no attitude-hold
+    // stage, rate-only cascade) -- testing the cross-axis coupling
+    // hypothesis after 3 independent roll-axis-only models (§7.30続報2-4)
+    // all failed to reproduce the persistent ~1.73s POS_HOLD oscillation.
+    // This runs later in the same compute() call as block B, which already
+    // incremented posdiag_counter_ (and reset it to 0 on its decimated
+    // cycle) earlier in this same cycle -- so checking ==0 here fires on
+    // the SAME cycle as block B. Remove after the measurement.
+    // 一時診断（§7.30続報5）— 箇所C: yawは箇所A/Bが対象外の唯一の軸
+    // （姿勢ホールド段を持たないレート直結カスケード）。roll軸単独の
+    // 3通りのモデル改良（§7.30続報2-4）が持続振動を再現できなかったため、
+    // 軸間結合仮説を検証する。この位置は同一compute()呼び出し内で箇所Bより
+    // 後——箇所Bが同サイクル内で既にposdiag_counter_をインクリメント
+    // （間引きサイクルなら0にリセット）済みなので、ここで==0を見れば
+    // 箇所Bと同じサイクルで発火する。調査後に削除する。
+    if (posdiag_counter_ == 0) {
+        ESP_LOGI(TAG, "posdiag C rate_sp_yaw=%.4f rate_meas_yaw=%.4f",
+                 static_cast<double>(rate_sp_yaw), static_cast<double>(gyro_rate.z));
+    }
+
     output.torque[0] = rate_roll_.compute(rate_sp_roll, gyro_rate.x, dt);
     output.torque[1] = rate_pitch_.compute(rate_sp_pitch, gyro_rate.y, dt);
     output.torque[2] = rate_yaw_.compute(rate_sp_yaw, gyro_rate.z, dt);
