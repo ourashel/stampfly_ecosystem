@@ -28,3 +28,28 @@ metric horizontal_drift_max < 3.0  in 7.6 21.6   # G3: position held tight (no f
 metric tilt_max < 0.3142  in 7.6 21.6  # 18.0 deg  # G3: attitude bounded (no tumble)
 metric duty_max            < 0.90  in 7.6 21.6   # G4: motors not saturated
 metric att_rmse < 0.08727   in 14.6 21.6  # 5.0 deg  # G2: ESKF roll/pitch tracks truth (steady)
+# G3 altitude bound, added 2026-09-12 (docs/plans/smc-rate-loop-plan.md
+# section 7.37): none of the checks above examine altitude at all, so an
+# ALT_HOLD runaway during POS_HOLD (climbing without bound) went silently
+# undetected on this exact scenario for two rate-loop apps (smc_rate,
+# smc_rate_sta) -- both climbed to 6-11m by t=21.6s while every check
+# above still reported PASS. The scenario's own scripted end-of-flight
+# DISARM fires at a fixed script time regardless of altitude, so a
+# runaway like this free-falls from whatever height it reached, which is
+# what later surfaced (outside this checked window) as a full tumble/hard
+# impact. 4.0m gives clear margin above the healthy ~1.2-2.7m range
+# observed across all 4 controllers tested (vehicle/PID, smc_rate,
+# smc_rate_sta, smc_rate_asta) while unambiguously catching the observed
+# 6-11m runaways.
+# G3 高度の上限、2026-09-12追加（docs/plans/smc-rate-loop-plan.md
+# §7.37）: 上記のチェックはいずれも高度を一切見ておらず、POS_HOLD中の
+# ALT_HOLD暴走（際限のない上昇）がこの全く同じシナリオで2つのレートループ
+# app（smc_rate、smc_rate_sta）について静かに見逃されていた——どちらも
+# t=21.6sまでに6〜11mまで上昇していたのに、上記チェックは全てPASSと
+# 報告していた。シナリオ自体のスクリプトによる終了時DISARMは高度を
+# 考慮せず固定時刻で発火するため、この種の暴走はその時点の高度から
+# 自由落下する——これが判定窓の外側で後に判明した完全な転倒・激しい
+# 衝突の正体だった。4.0mは、検証した4系統（vehicle/PID・smc_rate・
+# smc_rate_sta・smc_rate_asta）全てで観測された健全な範囲（約1.2〜2.7m）
+# に十分な余裕を持たせつつ、観測された6〜11mの暴走を明確に検出する。
+metric alt_max              < 4.0  in 7.6 21.6
