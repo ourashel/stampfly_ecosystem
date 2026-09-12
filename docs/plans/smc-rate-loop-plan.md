@@ -3005,12 +3005,71 @@ STA）だけがこの飽和を回避している**（duty_max=0.82）。姿勢�
   こと**（`app_controller.hpp`の`posdiag_counter_`メンバも同様）
 - `firmware/vehicle/components/sf_core/params.cpp` —
   `smc_asta.{roll,pitch,yaw}.osc_*`を`mref_*`に置き換え（宣言・
-  param_varsテーブル両方）。既定シード値は`mref_tau=0.03f`/
-  `mref_fast_tau=0.05f`/`mref_slow_tau=0.5f`/`mref_growth_ratio=1.5f`/
-  `mref_abs_floor=0.05f`/`mref_shrink_ratio=0.5f`——**本節の調整値
-  （`mref_tau=0.08`・`mref_fast_tau=0.03`・`mref_growth_ratio=1.2`・
-  `mref_abs_floor=0.02`・`mref_shrink_ratio=1.0`）はまだparams.cppの
-  デフォルトへ反映していない**（`--param`オーバーライドでのみ検証済み）
+  param_varsテーブル両方）。追記（同日、一時診断ログ削除と合わせて
+  コミット）: 本節の調整値（`mref_tau=0.08`・`mref_fast_tau=0.03`・
+  `mref_growth_ratio=1.2`・`mref_abs_floor=0.02`・
+  `mref_shrink_ratio=1.0`）をparams.cppのデフォルトへ反映済み
+  （元の初期シード値0.03/0.05/0.5/1.5/0.05/0.5から更新）——ただし
+  §7.34で判明した通りこの調整値は他シナリオへの副作用があり、
+  デフォルトとして最終確定したわけではない
+
+### 7.34 回帰セットで判明した過学習の兆候——duty_max追求の副作用
+
+ユーザー指示「どっちもやって"」（回帰セット確認とduty_max原因究明の
+両方）を受け、§7.33の調整値（`mref_tau=0.08`等、`pos_flight+
+motor-delay=15ms`のC2ステップ・duty_max対策として調整）のまま、
+承認済みプランの基本回帰セット4条件を実行した。
+
+**結果**:
+
+| シナリオ | 結果 |
+|---|---|
+| `stab_flight`(nominal) | **att_rmse=3.60° FAIL**（ゲート<3.0°）、tilt_max=13.04°・duty_max=0.71はPASS |
+| `stab_combined_aggressive --motor-delay 15` | 全PASS（att_rmse=2.52°、tilt_max=16.43°、duty_max=0.80） |
+| `pos_flight`(nominal、motor-delay無し) | 数値4ゲート全PASS（drift=0.80m/tilt=14.61°/duty=0.72/att_rmse=0.66°）だが**`DISARM accepted`欠落で再びFAIL** |
+| `acro_flight`(nominal) | att_rmse=2.00°・tilt_max=7.88°はPASSだが順序チェックFAIL——`smc_rate_sta`で同一シナリオを実行し**全く同一のFAIL**（同じインデックス関係、ほぼ同一数値）を確認、本設計に無関係な既存の問題と確定 |
+
+**重要な懸念（2件）**:
+
+1. **`stab_flight`(nominal)のatt_rmse後退**: 外乱ゼロの最も基本的な
+   シナリオでatt_rmseが3.60°まで悪化（§7.31時点の固定STA/適応STA
+   いずれも2.75〜2.86°で楽々PASSしていた水準）。§7.33で
+   `mref_shrink_ratio`を0.5→1.0、`mref_growth_ratio`を1.5→1.2、
+   `mref_abs_floor`を0.05→0.02まで感度を上げたことで、STA自身の
+   自然な（無害な）スイッチングチャタリングにまで規範モデル発散
+   ゲートが反応し、通常飛行でもk1を不必要に縮小している疑いがある。
+
+2. **`pos_flight`(nominal)でのDISARM再発**: §7.33で`pos_flight+
+   motor-delay=15ms`について「末尾のDISARM欠落は完全に解消」と
+   報告したが、**motor-delayを外した同じシナリオでは同じ「Impact
+   detected」→緊急DISARM→再ARMのパターンが再発**する。console.log
+   確認により、§7.32で見つけたのと全く同じ挙動（t≈21.6〜21.9s付近、
+   POS_HOLD終盤でのRC入力不変時の突発的な異常）であることを確認した。
+   つまりmotor-delay=15msという**特定の条件でだけ**この末尾破綻を
+   免れていたのであり、根本的に解消したのではなく、たまたま位相が
+   ずれて回避できていただけだった可能性が高い。
+
+**この2件が示すこと**: §7.33の`mref_*`調整は、`pos_flight+
+motor-delay=15ms`というただ1つの条件（C2ステップの安全性と
+duty_max）に狙いを絞ってチューニングされており、他の条件（無擾乱の
+基本飛行、motor-delay無しの同一機動）への副作用を生んでいる——
+§7.13・§7.31で繰り返し学んだ「狭い条件への過学習」パターンの再発
+である。規範モデル方式そのものの有効性（C2ステップの転倒級破綻の
+解消）は§7.33の比較実験で裏付けられているが、**現在の`mref_*`
+パラメータ値は広い条件で頑健とは言えない**。
+
+**duty_maxの原因究明（並行して着手、未完了）**: `smc_rate_sta`
+（固定k1=60）だけが`duty_max=1.0`飽和を回避する理由——k1の時間変化に
+伴うトルク波形の位相差が疑わしいという§7.33の仮説——は、
+`smc_rate_sta`側の詳細な軌道データとの波形比較まで至らず、本節では
+未完了のまま持ち越し。
+
+**今後の方針**: `mref_*`パラメータを再度、より広い条件セット
+（`stab_flight`nominal・`pos_flight`nominal・`pos_flight+
+motor-delay=15ms`の最低3条件を同時に）で確認しながら調整する必要が
+ある。前回（§7.31・§7.32）と同じ轍を踏まないよう、1つの条件だけを
+見て「解決した」と判断しない。`smc_rate_asta`は引き続き実機投入
+不可、`smc_rate_sta`が唯一の実機投入可能な選択肢のまま。
 
 ## 4. 実機投入ゲート
 
