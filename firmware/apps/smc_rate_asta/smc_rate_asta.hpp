@@ -153,16 +153,18 @@ struct AdaptiveSuperTwistingRate {
 
     // State: the two integral-like states from smc_rate_sta.hpp, PLUS the
     // adaptive k1 itself (k2 is derived from k1 each cycle, not stored
-    // independently), PLUS a low-pass filtered |s| used ONLY for the
-    // dead-band decision (see filter_tau below and its use in compute()).
+    // independently), PLUS a low-pass filtered SIGNED s (NOT |s|) used
+    // ONLY for the dead-band decision (see filter_tau below and its use in
+    // compute() for why filtering s, not |s|, matters).
     // 状態: smc_rate_sta.hppと同じ2つの積分状態、加えて適応k1自体
     // （k2はk1から毎サイクル導出、独立には保持しない）、加えて不感帯判定
-    // 専用の低域通過フィルタ済み|s|（下のfilter_tau、compute()内の使用箇所参照）。
+    // 専用の低域通過フィルタ済み**符号付き**s（|s|ではない、下のfilter_tau・
+    // compute()内のなぜsをフィルタすべきかの説明参照）。
     float integral   = 0;
     float z          = 0;
     float prev_error = 0;
     float k1         = 30.0f;  // current adaptive gain -- reset() seeds this from k1_init
-    float s_abs_lpf  = 0;      // low-pass filtered |s|, for the dead-band decision only
+    float s_lpf      = 0;      // low-pass filtered SIGNED s (not |s|!), for the dead-band decision only -- see compute()'s rationale comment
 
     /// Compute the adaptive super-twisting torque output / 適応スーパーツイスティング・トルク出力を計算
     /// @param rate_sp    Target angular rate [rad/s] / 目標角速度
@@ -196,39 +198,50 @@ struct AdaptiveSuperTwistingRate {
         // both the trial and final torque -- no one-cycle lag between the
         // adaptation and its effect.)
         //
-        // The dead-band decision runs on a LOW-PASS FILTERED |s|
-        // (s_abs_lpf), not the raw instantaneous value. Rationale (SILS
-        // finding, docs/plans/smc-rate-loop-plan.md section 7.31): with a
-        // raw-|s| dead-band, a single k1_max choice could not satisfy both
-        // a sustained disturbance (torque-authority=0.4, which needs k1 to
-        // grow) and sensor noise (noise n1, which should NOT make k1 grow
-        // -- noise spikes |s| briefly but doesn't represent an unrejected
-        // disturbance). Filtering |s| first exploits exactly that
-        // difference in time structure: a sustained disturbance keeps the
-        // FILTERED |s| elevated across many cycles, while noise's brief
-        // spikes average out below dead_band. filter_tau sets this
-        // separation's time scale -- large enough to reject fast noise,
-        // small enough to still react to a real disturbance promptly.
+        // The dead-band decision runs on |LPF(s)| -- the SIGNED s is
+        // filtered FIRST, then rectified -- NOT LPF(|s|) (filtering the
+        // already-rectified magnitude), which is what an earlier version of
+        // this file did. That earlier version filtered |s|, and this SIGN
+        // ERROR is why it failed to separate noise from a sustained
+        // disturbance (docs/plans/smc-rate-loop-plan.md section 7.31): |s|
+        // is already non-negative, so averaging it does NOT cancel
+        // zero-mean noise -- a zero-mean chattering s produces a
+        // rectified |s| with a persistent POSITIVE bias (its mean absolute
+        // deviation), which low-pass filtering preserves rather than
+        // removes. Filtering s itself is different: e/s under sensor noise
+        // is genuinely close to zero-mean (chatters around the true value),
+        // so LPF(s) correctly decays toward zero, while a sustained
+        // one-directional disturbance (torque-authority=0.4 -- the plant
+        // genuinely cannot produce enough differential torque, so e stays
+        // same-signed) biases s away from zero and LPF(s) reflects that
+        // directly. filter_tau sets the separation time scale -- large
+        // enough to average out fast zero-mean chatter, small enough to
+        // still react to a real disturbance promptly.
         // --- 適応則: sが収束しているかに基づきk1を更新 ---
         // （試験トルクの計算前に置き、同一サイクルのk1をtrial/finalどちらの
         // トルクにも使う——適応とその効果の間に1サイクルの遅れを作らない）
         //
-        // 不感帯判定は生の瞬時値ではなく、**低域通過フィルタ済み|s|**
-        // (s_abs_lpf)で行う。根拠（SILSでの発見、docs/plans/
-        // smc-rate-loop-plan.md §7.31）: 生の|s|で不感帯判定すると、単一の
-        // k1_max値では持続外乱（torque-authority=0.4、k1を成長させたい）と
-        // センサノイズ（noise n1、k1を成長させたくない——ノイズは|s|を
-        // 一瞬だけ跳ね上げるが未抑制の外乱ではない）を両立できなかった。
-        // |s|を先にフィルタすることで、まさにこの時間構造の違いを利用する:
-        // 持続外乱はフィルタ後の|s|を何サイクルも高く保つが、ノイズの
-        // 一瞬のスパイクは平均するとdead_band以下に収まる。filter_tauが
-        // この切り分けの時間スケールを決める——速いノイズを除去できる
-        // 程度に大きく、実外乱には即座に反応できる程度に小さく。
+        // 不感帯判定は|LPF(s)|——**符号付きsを先にフィルタしてから絶対値**
+        // を取る——であって、LPF(|s|)（既に絶対値を取った後の量をフィルタ
+        // する）ではない。このファイルの以前のバージョンは|s|をフィルタして
+        // おり、この**符号の誤り**が、ノイズと持続外乱を分離できなかった
+        // 原因だった（docs/plans/smc-rate-loop-plan.md §7.31）:
+        // |s|は既に非負なので、平均してもゼロ平均ノイズは打ち消せない
+        // ——ゼロ平均で振動するsを整流した|s|は、持続的な**正のバイアス**
+        // （その平均絶対偏差）を持ち、低域通過フィルタはこれを除去する
+        // どころか保持してしまう。s自体をフィルタするのは違う: センサ
+        // ノイズ下のe/sは真値の周りで振動する、実質ゼロ平均に近い信号
+        // なので、LPF(s)は正しくゼロへ減衰する。一方、持続的な一方向の
+        // 外乱（torque-authority=0.4——プラントが本当に十分な差動トルクを
+        // 出せず、eが同符号のまま留まる）はsをゼロから偏らせ、LPF(s)は
+        // それを直接反映する。filter_tauがこの切り分けの時間スケールを
+        // 決める——速いゼロ平均のチャタリングを平均化できる程度に大きく、
+        // 実外乱には即座に反応できる程度に小さく。
         if (dt > 0) {
             const float alpha_filt = dt / (filter_tau + dt);
-            s_abs_lpf += alpha_filt * (fabsf(s_trial) - s_abs_lpf);
+            s_lpf += alpha_filt * (s_trial - s_lpf);
 
-            const float k1_dot = (s_abs_lpf > dead_band)
+            const float k1_dot = (fabsf(s_lpf) > dead_band)
                 ? adapt_rate
                 : -adapt_rate * leak_ratio;
             k1 += k1_dot * dt;
@@ -321,7 +334,7 @@ struct AdaptiveSuperTwistingRate {
         z          = 0;
         prev_error = 0;
         k1         = k1_init;
-        s_abs_lpf  = 0;
+        s_lpf      = 0;
     }
 };
 
