@@ -328,7 +328,7 @@ Phase 2b（`sf log viz`/`analyze`/`--health`・旧描画コード削除、§3.2�
 Phase 3（SILS・`sf sim headless`・SILS 退行試験 34 本 = 28 PASS + 5 既知の失敗 + 1 SKIP、§3.3）= 60a421b1、
 Phase 4（文書、§6）= 本コミット。Phase 3 で判明した仕様の穴として、必須ストリームを取得元別にした
 （`required_streams`: vehicle = imu、sils = imu + truth、sim = truth。§2.2 の補足）。
-**未了:** (1) 実機での `sf log wifi -d 30` → `sf log check/viz/analyze` の確認（本計画の全セッションで実機なし）、
+**未了:** (1) ~~実機での `sf log wifi -d 30` → `sf log viz` の確認~~ 2026-09-12 実機で確認済み（`check`/`analyze` の結果は未報告）、
 (2) SCI 資料の PDF は再ビルド済みだが Docswell への再アップロードは利用者のアカウントが必要、
 (3) `sf sils sysid-gate`（SILS のモデル一致の合否判定）は一式経由で動くが判定は FAIL のまま
 （SILS プラントと実機の差。simulation-policy のバックログ。一式化で motor.csv の duty が使えるように
@@ -378,7 +378,7 @@ Phase 0 の検証で `logs/stampfly_udp_20260908T121243.jsonl`（30 秒、ホバ
 ## 8. 未確認事項
 
 - 一式のファイルサイズ実測（zip 圧縮後）。Phase 1 で既存 JSONL を変換して測る。
-- 実機での `sf log wifi` 一式書き出し（本セッションでは実機なし）。
+- ~~実機での `sf log wifi` 一式書き出し~~ → 2026-09-12 実機で 30 秒取得と `sf log viz` の表示を確認済み（ユーザー報告）。
 - `lib/stampfly` SDK が `vehicle_connection.py` のどのクラスを使うか（旧 WebSocket 電文の
   解析コード `packet_parser.py` は生きた操縦経路が使っている可能性があるため、本計画では
   触らない）。
