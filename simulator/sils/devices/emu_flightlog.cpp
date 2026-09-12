@@ -17,7 +17,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#if defined(_WIN32)
+#include <direct.h>     // _mkdir — MinGW/MSVC's mkdir takes no mode argument
+#else
 #include <sys/stat.h>   // mkdir — create the bundle directory if missing
+#endif
 
 #include "plant.hpp"    // sils::Plant (opaque pointer in the public API)
 
@@ -58,7 +62,11 @@ extern "C" void sils_emu_flightlog_open(const char* dir)
     // parents are not our job -- the sf CLI creates the parent directory.
     // ベストエフォートで作成。既存(EEXIST)はエラーにしない。親ディレクトリの
     // 再帰作成はここの責務ではない -- sf CLI が親を作る。
+#if defined(_WIN32)
+    _mkdir(g_dir);          // MinGW/MSVC: no mode argument
+#else
     mkdir(g_dir, 0755);
+#endif
     g_stream_count = 0;
     g_truth_next_us = 0;
 }
