@@ -265,6 +265,35 @@ struct AdaptiveSuperTwistingRate {
     float mref_growth_ratio = 1.5f;  // fast EMA must exceed slow EMA by this multiple (before mref_abs_floor is added) to judge "diverging"
     float mref_abs_floor    = 0.05f; // [rad/s] additive floor so two near-zero EMAs (both quiet) don't trigger on ratio noise alone
     float mref_shrink_ratio = 0.5f;  // decay rate while diverging, as a fraction of adapt_rate (independent of leak_ratio) -- same role/value as section 7.32's osc_shrink_ratio
+    // mref_dwell_time (section 7.34, added after a 3-condition SILS sweep
+    // found NO single mref_tau/mref_fast_tau/mref_growth_ratio/
+    // mref_abs_floor/mref_shrink_ratio combination satisfies both
+    // pos_flight+motor-delay=15ms's C2-step (needs a sensitive gate) and
+    // stab_flight's plain no-disturbance flight (any sensitivity increase
+    // -- via mref_tau, or via mref_fast_tau/growth/floor/shrink -- raised
+    // att_rmse from ~2.7deg to ~3.3-3.6deg, gate <3.0deg): an instantaneous
+    // "fast EMA exceeds slow EMA" test cannot tell a single-cycle noise/
+    // chatter blip (common during ordinary tracking) from a genuinely
+    // sustained divergence (which, per the section 7.33 waveform
+    // investigation, grows over MANY cycles during the C2 step) -- both
+    // can momentarily satisfy the same instantaneous threshold. Requiring
+    // the threshold to hold continuously for mref_dwell_time before
+    // acting filters out the former while still catching the latter
+    // (which stays elevated far longer than this dwell window).
+    // mref_dwell_time（§7.34、3条件でのSILS一巡の結果、単一の
+    // mref_tau/mref_fast_tau/mref_growth_ratio/mref_abs_floor/
+    // mref_shrink_ratioの組み合わせでは`pos_flight+motor-delay=15ms`の
+    // C2ステップ（高感度なゲートが必要）と`stab_flight`の無擾乱飛行
+    // （mref_tau経由でもmref_fast_tau/growth/floor/shrink経由でも、
+    // 感度を上げるとatt_rmseが約2.7°→3.3〜3.6°へ悪化、ゲート<3.0°）を
+    // 両立できないと判明したため追加）: 「速いEMAが遅いEMAを上回る」の
+    // 瞬時判定では、通常の追従で普通に起きる単発ノイズ/チャタリングの
+    // 一過性のブレと、真に持続的な発散（§7.33の波形調査によればC2
+    // ステップでは何サイクルにも渡って成長し続ける）を区別できない——
+    // どちらも同じ瞬時閾値を一瞬満たしうる。閾値がmref_dwell_time秒間
+    // 連続して満たされて初めて反応することで、前者を除去しつつ後者
+    // （この猶予窓よりはるかに長く高止まりする）は依然検知できる。
+    float mref_dwell_time   = 0.06f; // [s] threshold must hold continuously this long before "diverging" latches -- SEED, SILS-unverified
 
     // --- Same-as-smc_rate_sta.hpp parameters / smc_rate_sta.hppと同じパラメータ ---
     float phi      = 0.02f; // [rad/s] sign() smoothing width (numerical only -- see smc_rate_sta.hpp)
@@ -297,6 +326,7 @@ struct AdaptiveSuperTwistingRate {
     float rate_model   = 0;    // reference model's own state (an idealized rate_meas, driven by rate_sp) -- see mref_tau
     float e_model_fast = 0;    // fast leaky EMA of |e_model| -- see mref_fast_tau
     float e_model_slow = 0;    // slow leaky EMA of |e_model| -- see mref_slow_tau
+    float mref_dwell_timer = 0; // [s] how long the divergence threshold has held continuously -- see mref_dwell_time
 
     /// Compute the adaptive super-twisting torque output / 適応スーパーツイスティング・トルク出力を計算
     /// @param rate_sp    Target angular rate [rad/s] / 目標角速度
@@ -408,7 +438,46 @@ struct AdaptiveSuperTwistingRate {
             e_model_fast += alpha_fast * (abs_e_model - e_model_fast);
             e_model_slow += alpha_slow * (abs_e_model - e_model_slow);
         }
-        const bool diverging = e_model_fast > (mref_growth_ratio * e_model_slow + mref_abs_floor);
+        const bool over_thresh = e_model_fast > (mref_growth_ratio * e_model_slow + mref_abs_floor);
+        // Dwell-time latch (section 7.34) -- see mref_dwell_time's
+        // rationale comment above: only treat this as a genuine
+        // divergence once the instantaneous threshold has held
+        // continuously for mref_dwell_time, filtering out single-cycle
+        // noise/chatter blips that would otherwise false-trigger a shrink
+        // during ordinary, undisturbed tracking.
+        // 猶予時間ラッチ（§7.34）-- 上のmref_dwell_timeの根拠コメント参照:
+        // 瞬時閾値がmref_dwell_time秒間連続で満たされて初めて真の発散と
+        // みなす——さもなければ通常の無擾乱追従中の単発ノイズ/チャタリング
+        // のブレでシュリンクが誤発火してしまう。
+        if (dt > 0) {
+            if (over_thresh) {
+                mref_dwell_timer += dt;
+            } else {
+                mref_dwell_timer = 0;
+            }
+        }
+        // NOTE (section 7.34 bug fix): must also require over_thresh
+        // itself here -- "mref_dwell_timer >= mref_dwell_time" ALONE is
+        // trivially true at mref_dwell_time=0 even while over_thresh is
+        // false (mref_dwell_timer resets to exactly 0, and 0>=0), making
+        // mref_dwell_time=0 degenerate into "always diverging" instead of
+        // "trigger immediately on the first over_thresh cycle" as
+        // intended. Found via SILS: mref_dwell_time=0 produced a WORSE
+        // stab_flight att_rmse (3.74deg) than even a large, fully-
+        // suppressing dwell (3.05deg) -- the opposite of what an
+        // instant-trigger reduction should do -- which is what exposed
+        // this off-by-one-at-the-boundary condition.
+        // 注記（§7.34のバグ修正）: ここではover_thresh自体も要求しなければ
+        // ならない——「mref_dwell_timer >= mref_dwell_time」だけでは、
+        // mref_dwell_time=0のときover_thresh=falseでも自明に真になって
+        // しまう（mref_dwell_timerはちょうど0にリセットされ、0>=0は真）。
+        // これによりmref_dwell_time=0が「最初のover_threshサイクルで即座に
+        // 発火」という意図ではなく「常時発散扱い」に退化してしまっていた。
+        // SILSで発覚: mref_dwell_time=0のstab_flightのatt_rmse（3.74°）が、
+        // 発散を完全抑制する大きなdwell（3.05°）よりも悪化しており——
+        // 即時判定への短縮が悪化を招くのは矛盾している——この境界条件の
+        // バグが露呈した。
+        const bool diverging = over_thresh && (mref_dwell_timer >= mref_dwell_time);
 
         if (dt > 0) {
             const float alpha_filt = dt / (filter_tau + dt);
@@ -521,6 +590,7 @@ struct AdaptiveSuperTwistingRate {
         rate_model    = 0;
         e_model_fast  = 0;
         e_model_slow  = 0;
+        mref_dwell_timer = 0;
     }
 };
 

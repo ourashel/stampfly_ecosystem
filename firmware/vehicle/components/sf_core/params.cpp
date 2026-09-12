@@ -1071,6 +1071,7 @@ namespace param_vars {
     float smc_asta_roll_mref_growth_ratio = 1.2f;   // 2026-09-12 tuned, section 7.33
     float smc_asta_roll_mref_abs_floor    = 0.02f;  // 2026-09-12 tuned, section 7.33
     float smc_asta_roll_mref_shrink_ratio = 1.0f;   // 2026-09-12 tuned, section 7.33
+    float smc_asta_roll_mref_dwell_time   = 0.06f;  // 2026-09-12 added, section 7.34 -- see smc_rate_asta.hpp's mref_dwell_time comment
     float smc_asta_roll_phi        = 0.02f;   // [rad/s] seed = smc_rate_sta current
     float smc_asta_roll_lambda_i   = 6.0f;    // [1/s] seed = smc_rate_sta current
     float smc_asta_roll_e_reset    = 0.75f;   // [rad/s] seed = smc_rate_sta current
@@ -1090,6 +1091,7 @@ namespace param_vars {
     float smc_asta_pitch_mref_growth_ratio = 1.2f;   // 2026-09-12 tuned, section 7.33
     float smc_asta_pitch_mref_abs_floor    = 0.02f;  // 2026-09-12 tuned, section 7.33
     float smc_asta_pitch_mref_shrink_ratio = 1.0f;   // 2026-09-12 tuned, section 7.33
+    float smc_asta_pitch_mref_dwell_time   = 0.06f;  // 2026-09-12 added, section 7.34
     float smc_asta_pitch_phi        = 0.02f;
     float smc_asta_pitch_lambda_i   = 6.0f;
     float smc_asta_pitch_e_reset    = 0.75f;
@@ -1109,6 +1111,7 @@ namespace param_vars {
     float smc_asta_yaw_mref_growth_ratio = 1.2f;   // 2026-09-12 tuned, section 7.33
     float smc_asta_yaw_mref_abs_floor    = 0.02f;  // 2026-09-12 tuned, section 7.33
     float smc_asta_yaw_mref_shrink_ratio = 1.0f;   // 2026-09-12 tuned, section 7.33
+    float smc_asta_yaw_mref_dwell_time   = 0.06f;  // 2026-09-12 added, section 7.34
     float smc_asta_yaw_phi        = 0.04f;
     float smc_asta_yaw_lambda_i   = 1.25f;
     float smc_asta_yaw_e_reset    = 1.5f;
@@ -1742,6 +1745,7 @@ static const ParamEntry table[] = {
     {"smc_asta.roll.mref_growth_ratio", ParamType::FLOAT, &smc_asta_roll_mref_growth_ratio, 1.2f,  1.0f, 20.0f,  &notifyControllerReload},
     {"smc_asta.roll.mref_abs_floor",    ParamType::FLOAT, &smc_asta_roll_mref_abs_floor,    0.02f, 0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.roll.mref_shrink_ratio", ParamType::FLOAT, &smc_asta_roll_mref_shrink_ratio, 1.0f,  0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.roll.mref_dwell_time",   ParamType::FLOAT, &smc_asta_roll_mref_dwell_time,   0.06f, 0.0f, 1.0f,   &notifyControllerReload},
     {"smc_asta.roll.phi",        ParamType::FLOAT, &smc_asta_roll_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.roll.lambda_i",   ParamType::FLOAT, &smc_asta_roll_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.roll.e_reset",    ParamType::FLOAT, &smc_asta_roll_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
@@ -1760,6 +1764,7 @@ static const ParamEntry table[] = {
     {"smc_asta.pitch.mref_growth_ratio", ParamType::FLOAT, &smc_asta_pitch_mref_growth_ratio, 1.2f,  1.0f, 20.0f,  &notifyControllerReload},
     {"smc_asta.pitch.mref_abs_floor",    ParamType::FLOAT, &smc_asta_pitch_mref_abs_floor,    0.02f, 0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.pitch.mref_shrink_ratio", ParamType::FLOAT, &smc_asta_pitch_mref_shrink_ratio, 1.0f,  0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.mref_dwell_time",   ParamType::FLOAT, &smc_asta_pitch_mref_dwell_time,   0.06f, 0.0f, 1.0f,   &notifyControllerReload},
     {"smc_asta.pitch.phi",        ParamType::FLOAT, &smc_asta_pitch_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.pitch.lambda_i",   ParamType::FLOAT, &smc_asta_pitch_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.pitch.e_reset",    ParamType::FLOAT, &smc_asta_pitch_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
@@ -1778,6 +1783,7 @@ static const ParamEntry table[] = {
     {"smc_asta.yaw.mref_growth_ratio", ParamType::FLOAT, &smc_asta_yaw_mref_growth_ratio, 1.2f,  1.0f, 20.0f,  &notifyControllerReload},
     {"smc_asta.yaw.mref_abs_floor",    ParamType::FLOAT, &smc_asta_yaw_mref_abs_floor,    0.02f, 0.0f, 5.0f,   &notifyControllerReload},
     {"smc_asta.yaw.mref_shrink_ratio", ParamType::FLOAT, &smc_asta_yaw_mref_shrink_ratio, 1.0f,  0.0f, 5.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.mref_dwell_time",   ParamType::FLOAT, &smc_asta_yaw_mref_dwell_time,   0.06f, 0.0f, 1.0f,   &notifyControllerReload},
     {"smc_asta.yaw.phi",        ParamType::FLOAT, &smc_asta_yaw_phi,        0.04f, 0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.yaw.lambda_i",   ParamType::FLOAT, &smc_asta_yaw_lambda_i,   1.25f, 0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.yaw.e_reset",    ParamType::FLOAT, &smc_asta_yaw_e_reset,    1.5f,  0.0f, 5.0f,    &notifyControllerReload},

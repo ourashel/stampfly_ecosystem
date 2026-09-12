@@ -79,6 +79,7 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc_asta.roll.mref_growth_ratio", sta_roll_.mref_growth_ratio);
     sf::params::get_float("smc_asta.roll.mref_abs_floor",    sta_roll_.mref_abs_floor);
     sf::params::get_float("smc_asta.roll.mref_shrink_ratio", sta_roll_.mref_shrink_ratio);
+    sf::params::get_float("smc_asta.roll.mref_dwell_time",   sta_roll_.mref_dwell_time);
     sf::params::get_float("smc_asta.roll.phi",        sta_roll_.phi);
     sf::params::get_float("smc_asta.roll.lambda_i",   sta_roll_.lambda_i);
     sf::params::get_float("smc_asta.roll.e_reset",    sta_roll_.e_reset);
@@ -97,6 +98,7 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc_asta.pitch.mref_growth_ratio", sta_pitch_.mref_growth_ratio);
     sf::params::get_float("smc_asta.pitch.mref_abs_floor",    sta_pitch_.mref_abs_floor);
     sf::params::get_float("smc_asta.pitch.mref_shrink_ratio", sta_pitch_.mref_shrink_ratio);
+    sf::params::get_float("smc_asta.pitch.mref_dwell_time",   sta_pitch_.mref_dwell_time);
     sf::params::get_float("smc_asta.pitch.phi",        sta_pitch_.phi);
     sf::params::get_float("smc_asta.pitch.lambda_i",   sta_pitch_.lambda_i);
     sf::params::get_float("smc_asta.pitch.e_reset",    sta_pitch_.e_reset);
@@ -115,6 +117,7 @@ void AppController::loadSmcParams()
     sf::params::get_float("smc_asta.yaw.mref_growth_ratio", sta_yaw_.mref_growth_ratio);
     sf::params::get_float("smc_asta.yaw.mref_abs_floor",    sta_yaw_.mref_abs_floor);
     sf::params::get_float("smc_asta.yaw.mref_shrink_ratio", sta_yaw_.mref_shrink_ratio);
+    sf::params::get_float("smc_asta.yaw.mref_dwell_time",   sta_yaw_.mref_dwell_time);
     sf::params::get_float("smc_asta.yaw.phi",        sta_yaw_.phi);
     sf::params::get_float("smc_asta.yaw.lambda_i",   sta_yaw_.lambda_i);
     sf::params::get_float("smc_asta.yaw.e_reset",    sta_yaw_.e_reset);
