@@ -706,6 +706,39 @@ void EskfCore::updateAccelAttitude(const Vec3& accel_raw)
         accel.z - h_vec.z
     };
 
+    // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md §7.30続報7) --
+    // the accel-comp alpha-beta tracker's acceleration state (a_kin_ned_)
+    // showed a large lag/gain (-70deg/-336ms, 3.6x) at the observed ~1.73s
+    // POS_HOLD oscillation frequency when analyzed offline (§7.30続報6) --
+    // a simplified Python model of this feedback (flow vel -> a_kin ->
+    // this accel-attitude innovation -> attitude estimate -> attitude PID
+    // -> tilt -> real accel -> flow vel) was the first of 5 independent
+    // model variants to show a growing (not just decaying) oscillation.
+    // This logs the REAL innov[1] (roll-relevant Y-axis accel-attitude
+    // innovation) and a_kin_ned_.y directly from the actual ESKF, called
+    // every predict() cycle (~400Hz) -- decimated to ~20Hz to match the
+    // existing posdiag_* probes in pid_controller.cpp for cross-analysis.
+    // Remove after the measurement.
+    // 一時診断（§7.30続報7）— accel-comp α-βトラッカーの加速度状態
+    // (a_kin_ned_) が観測された約1.73秒周期のPOS_HOLD振動の周波数で大きな
+    // 遅れ・増幅（-70°/-336ms、3.6倍）を示すことをオフライン解析（§7.30続報6）
+    // で発見し、この閉ループ（フロー速度→a_kin→この姿勢イノベーション→
+    // 姿勢推定→姿勢制御→tilt→真の加速度→フロー速度）を簡略化したPython
+    // モデルで初めて成長振動が再現された。ここでは実際のESKFからroll関連
+    // (Y軸)のinnov[1]とa_kin_ned_.yを直接ログする。predict()毎回（約400Hz）
+    // 呼ばれるため間引くが、a_kinはフロータスクの100Hzで更新されるため、
+    // 20Hz間引き（20サイクル）ではエイリアシングを起こすと判明——
+    // 100Hzより十分細かい200Hz相当（2サイクル）に変更。調査後に削除する。
+    {
+        static uint32_t eskf_diag_counter = 0;
+        if (++eskf_diag_counter >= 2) {
+            eskf_diag_counter = 0;
+            ESP_LOGI(TAG, "posdiag D innov_y=%.5f a_kin_y=%.4f a_kin_x=%.4f",
+                     static_cast<double>(innov[1]), static_cast<double>(a_kin_ned_.y),
+                     static_cast<double>(a_kin_ned_.x));
+        }
+    }
+
     // H matrix: attitude part + accel bias part
     // H行列: 姿勢部分 + 加速度バイアス部分
     float R_dcm[3][3];
