@@ -482,6 +482,12 @@ When developing this codebase, follow this order:
 
 学会原稿・申請書（科研費等）・個人の研究計画は、この公開リポジトリには置かない（履歴にも残さない、2026-09-05 に履歴から除去済み）。それらは手元の別の非公開リポジトリで管理する。この公開リポジトリ側から非公開リポジトリへのリンクやパスを書かない。クラウド版セッションは作業ブランチを origin に push するため、非公開文書の作業をこのリポジトリで開いてはならない。`.gitignore` の `docs/_private/`・`papers/`・`grants/` は置き間違え防止用である。手元では `git config core.hooksPath .githooks` を一度実行すると、`.githooks/pre-commit` がこれらのパスや申請書関連の語を含むコミットを拒否する。
 
+## Git運用（フォーク経由・PR禁止）
+
+`origin`（`M5Fly-kanazawa/stampfly_ecosystem`）へは直接 push しない——リモート名を意図的に `origin-disabled` に変更してあり、誤って `git push origin` としても解決できないようにしている。作業成果を外部へ出す場合は、GitHub上で個人アカウント（例: `ourashel/stampfly_ecosystem`）へ fork し、その fork をリモート（例: `myfork`）として追加して push する。
+
+**`M5Fly-kanazawa/stampfly_ecosystem`（上流）へのプルリクエストは絶対に作成しない。** fork への push はよいが、そこで止める——`gh pr create` 等でupstreamへPRを送る操作は、良い結果が出た場合であっても行わない。
+
 ## Reference
 
 All architectural decisions are documented in `PROJECT_PLAN.md`. Consult this document before making structural changes.
