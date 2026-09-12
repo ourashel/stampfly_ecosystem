@@ -2903,6 +2903,115 @@ C2ステップの壊滅的破綻が全面的に再発する）。
 | R9 | Y. Wang, W. Zhang, Y. Yang, C. Xue, S. Yuan, and H. Zhang, "Adaptive Second-Order Sliding Mode Control of Buck Converters with Multi-Disturbances," *Energies*, vol. 15, no. 14, p. 5139, 2022. DOI: 10.3390/en15145139. | §7.32の核——スライディング面`s`のゼロクロス点数をオンライン計数し固定ゲインを時変ゲインへ置き換える適応2次SMC則。本設計の`cross_ema`/`osc_thresh`によるゲーティングはこの手法の応用だが、上記の通り単純なカウントだけでは元論文が想定する区別能力に届いていない可能性がある |
 | R10 | "New methodology for adaptive sliding mode control with self-tuning threshold based on chattering detection," *Mechanical Systems and Signal Processing*, 2025 (in press/online). DOI経由: sciencedirect.com/science/article/abs/pii/S0888327025005552（著者名は検索で確認できず、書誌情報のみ引用） | チャタリング（発振）の出現そのものに駆動される適応則という考え方——本設計が今回直面した「発振の判定基準の精緻化が必要」という課題に対する参考先になりうる |
 
+### 7.33 規範モデル方式への転換——末尾破綻は解消、duty_maxは既存プラント限界と判明
+
+ユーザーの指摘「規範モデルはどうしたの？」を受けた設計転換。§7.32のゼロ
+クロス計数ゲートは「何に対して収束しているか」という基準を持たず、
+発散的振動と収束気味の限界サイクルを区別できなかった。これは
+Model Reference Adaptive Control（MRAC）の標準的な考え方——健全な閉
+ループの理想応答を表す**規範モデル**を用意し、それへの追従誤差で適応則
+を駆動する——が欠けていたことが根本原因と判断し、文献を確認した上で
+設計を全面的に置き換えた。
+
+**文献**: W. Barreto da Silveira, P. J. D. de Oliveira Evald, G. V. Hollweg,
+D. M. C. Milbradt, R. V. Tambara, and H. A. Gründling, "Robust Model
+Reference Adaptive Control With a Full Adaptive Super-Twisting Sliding
+Mode Action: Discrete-Time Stability Analysis and Application,"
+*International Journal of Adaptive Control and Signal Processing*, Wiley,
+2025. DOI: 10.1002/acs.4101.（以下[R11]、Web検索で書誌情報を確認済み、
+2026-09-12）——規範モデルと適応ゲインSTAを組み合わせ、スイッチング作用を
+「規範モデルへの追従誤差」で駆動し、定常状態に達したら弱める、という
+設計。まさに今回欲しかった「発散」と「収束済みの残留チャタリング」の
+区別の考え方そのもの。
+
+**新設計**（`smc_rate_asta.hpp`、§7.32のosc_tau/osc_thresh/
+osc_shrink_ratioを置き換え）: 各軸に`rate_sp`で駆動される単純な一次遅れ
+の規範モデル（時定数`mref_tau`）を追加。モデルへの追従誤差
+`e_model=rate_meas-rate_model`の絶対値を速い/遅い2つの漏れ積分EMA
+（`mref_fast_tau`/`mref_slow_tau`）で追跡し、速い方が遅い方を
+`mref_growth_ratio`倍（`mref_abs_floor`という絶対フロアを超えて）
+明確に上回ったときだけ「規範モデルから発散中」と判定してk1を
+`mref_shrink_ratio`で縮小する——単なる`s`の非ゼロやゼロクロス回数では
+なく、モデルとの乖離**トレンド**を見る。
+
+**検証結果（`pos_flight+motor-delay=15ms`、既定シード値）**: 末尾の
+DISARM欠落問題（§7.32の第二破綻）は**完全に解消**（クリーンな
+`DISARM accepted`、正しい順序）。ただしC2ステップ側の安全ゲートが
+再び悪化（drift=12.51m、tilt=25.11°、att_rmse=7.23°、いずれもFAIL）
+——規範モデルの時定数`mref_tau=0.03s`が速すぎ、モデルが実質的に
+指令値`rate_sp`そのものに近くなってしまい、判別力を失っていたためと
+考えられる。
+
+**パラメータ調整**（`mref_tau=0.08`・`mref_fast_tau=0.03`・
+`mref_growth_ratio=1.2`・`mref_abs_floor=0.02`・`mref_shrink_ratio=1.0`、
+`k1_max`は150/90/60のいずれでも同一結果——後述）:
+
+| 指標 | ゲート | 既定シード | 調整後 |
+|---|---|---|---|
+| horizontal_drift_max | <3.0m | 12.51m FAIL | **0.78〜2.5m PASS** |
+| tilt_max | <18° | 25.11° FAIL | **15.2〜15.4° PASS** |
+| att_rmse | <5.0° | 7.23° FAIL | **0.9〜2.1° PASS** |
+| duty_max | <0.9 | 1.0000 FAIL | 1.0000 FAIL（残存） |
+| DISARM | — | PASS | PASS（維持） |
+
+**duty_maxの原因調査**: `k1_max`を150→90→60（`smc_rate_sta`固定値と同一）
+まで下げても`duty_max=1.0000`は不変——k1の大きさが原因ではないと判明。
+temporary診断ログ（`app_controller.cpp`に一時追加、docs/plans/
+smc-rate-loop-plan.md §7.33調査用、要削除）でC2ステップ中の`k1`の
+実際の推移を確認したところ、**k1は40〜48で推移し`k1_max=60`に一度も
+到達していなかった**（`smc_rate_sta`の固定値60より常に低い）。各軸の
+トルク出力も±0.0003〜0.0006 Nm程度で軸ごとの出力上限（±5.2mNm）には
+遠く及ばない——単一軸の暴走ではなく、複数軸合成をミキサ側で処理する
+段階での飽和と判断した。
+
+**他制御機構との比較実験**（ユーザー指示、同一条件`pos_flight+
+motor-delay=15ms`）:
+
+| 制御機構 | drift_max(<3.0m) | tilt_max(<18°) | duty_max(<0.9) | att_rmse(<5.0°) |
+|---|---|---|---|---|
+| `vehicle`（デフォルトPIDカスケード） | 0.53m PASS | **25.70° FAIL** | **1.0000 FAIL** | 1.22° PASS |
+| `smc_rate`（初代・非適応SMC） | **6.09m FAIL** | **20.53° FAIL** | **1.0000 FAIL** | **5.36° FAIL** |
+| `smc_rate_sta`（固定ゲインSTA、凍結・実機投入版） | 0.76〜0.82m PASS | 16.10〜16.36° PASS | **0.82 PASS** | 0.79〜1.14° PASS |
+| `smc_rate_asta`（規範モデル適応STA、本節・調整後） | 0.78〜2.5m PASS | 15.2〜15.4° PASS | **1.0000 FAIL** | 0.87〜2.1° PASS |
+
+**この比較からの結論**: `duty_max=1.0`飽和は**本設計に固有の欠陥では
+ない**——デフォルトPID・初代SMCも同じ条件で同じ飽和を起こしており、
+`pos_flight.scn`自体が既に記録している既知のプラント/ミキサ限界
+（backlog #12、新プラントの高い基準dutyの上で複合ロール+ピッチ機動が
+要求する差動トルクが余裕を上回る）と整合する。ただし「制御則に無関係の
+純粋なプラント限界」とまでは言えない——**`smc_rate_sta`（固定k1=60の
+STA）だけがこの飽和を回避している**（duty_max=0.82）。姿勢・ドリフト・
+追従精度で見ると、本設計（規範モデル適応STA）は`smc_rate_sta`にほぼ
+匹敵し（tilt_maxはむしろ4系統中最良）、PID・初代SMCよりも明確に優れて
+いる——STA化・規範モデルによる適応化の効果はこの複合機動でも明確。
+残る課題はduty_maxの一点のみで、これは`smc_rate_sta`の持つ固定ゲイン
+特有の（まだ解明していない）波形上の優位性に由来すると考えられる。
+
+**現状の結論**: `smc_rate_asta`は§7.32の2つの重大破綻（C2ステップの
+転倒級破綻、飛行末尾のDISARM失敗）をいずれも解消し、PID・初代SMCより
+明確に優れた頑健性を持つに至ったが、`smc_rate_sta`の水準（duty_max
+0.82）にはまだ届いていない。実機投入は引き続き見送り、
+`smc_rate_sta`が唯一の実機投入可能な選択肢のまま。
+
+**変更ファイル**（§7.32からの追加差分）:
+- `firmware/apps/smc_rate_asta/smc_rate_asta.hpp` — osc_tau/osc_thresh/
+  osc_shrink_ratio/prev_sign_s/cross_emaを削除、mref_tau/mref_fast_tau/
+  mref_slow_tau/mref_growth_ratio/mref_abs_floor/mref_shrink_ratio/
+  rate_model/e_model_fast/e_model_slowに置き換え。ファイルヘッダに
+  §7.32→7.33の設計変遷と[R11]の全文引用を追加
+- `firmware/apps/smc_rate_asta/app_controller.cpp` — param配線を
+  mref_*系に更新。C2ステップの過渡波形を見るための一時診断ログ
+  （`posdiag`、TAG="SMC_ASTA"）を追加——**duty_max調査完了後に削除する
+  こと**（`app_controller.hpp`の`posdiag_counter_`メンバも同様）
+- `firmware/vehicle/components/sf_core/params.cpp` —
+  `smc_asta.{roll,pitch,yaw}.osc_*`を`mref_*`に置き換え（宣言・
+  param_varsテーブル両方）。既定シード値は`mref_tau=0.03f`/
+  `mref_fast_tau=0.05f`/`mref_slow_tau=0.5f`/`mref_growth_ratio=1.5f`/
+  `mref_abs_floor=0.05f`/`mref_shrink_ratio=0.5f`——**本節の調整値
+  （`mref_tau=0.08`・`mref_fast_tau=0.03`・`mref_growth_ratio=1.2`・
+  `mref_abs_floor=0.02`・`mref_shrink_ratio=1.0`）はまだparams.cppの
+  デフォルトへ反映していない**（`--param`オーバーライドでのみ検証済み）
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて

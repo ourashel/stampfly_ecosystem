@@ -100,7 +100,78 @@
  * smc_rate_sta.hppから変更なし——実績のある設計を流用し新規に考案しない。
  * 各機構の根拠はsmc_rate_sta.hpp参照。
  *
- * @design docs/plans/smc-rate-loop-plan.md section 7.31 -- adaptive STA trial [--]
+ * --- Section 7.32 -> 7.33 design history: from crossing-count to a
+ * reference model / セクション7.32→7.33の設計変遷: クロス計数から規範
+ * モデルへ ---
+ * §7.32's FIRST attempt at telling "sustained bias" (grow k1) apart from
+ * "delay-driven oscillatory divergence" (shrink k1) counted s's zero
+ * crossings via a leaky EMA and gated growth on that count. SILS confirmed
+ * this fixes the primary divergence (pos_flight+motor-delay=15ms's
+ * tumble-class failure) but introduced a SECOND, narrower failure: near
+ * the end of a long POS_HOLD, with RC input completely unchanged, the
+ * gate still (correctly, per its own logic) detected 2+ crossings and
+ * shrank k1 -- but this particular oscillation was a marginal, essentially
+ * convergent limit cycle (the vehicle was on the edge of having JUST
+ * enough gain), not a divergent one, and shrinking k1 pushed it past that
+ * edge into an actual motor-duty asymmetry and a hard "impact detected" /
+ * emergency disarm. A raw crossing COUNT cannot make this distinction --
+ * it has no notion of "converged relative to what". A 4-point parameter
+ * sweep (osc_thresh 2.0/3.0, osc_shrink_ratio 0.5/0.2, osc_thresh=20 i.e.
+ * near-disabled) confirmed the gate is binary in effect: any active
+ * setting reproduces the tail-end failure, disabling it reproduces the
+ * original divergence (docs/plans/smc-rate-loop-plan.md section 7.32).
+ *
+ * §7.33 replaces the crossing counter with a REFERENCE MODEL [R11]: a
+ * simple, non-adaptive first-order lag per axis, driven by the SAME
+ * rate_sp this controller receives, produces an idealized "healthy
+ * closed-loop" rate response rate_model. The MODEL-FOLLOWING error
+ * e_model = rate_meas - rate_model is tracked with a FAST and a SLOW leaky
+ * EMA of |e_model|; when the fast EMA notably exceeds the slow one (by a
+ * ratio, past an absolute floor so both being near-zero doesn't trigger a
+ * noisy ratio), the actual response is judged to be diverging AWAY from
+ * the reference model's ideal trajectory -- not merely "s is nonzero" or
+ * "s crossed zero N times" -- and k1 is shrunk. During the C2-step
+ * divergence, e_model genuinely grows large and fast (the real system
+ * cannot track rate_sp as well as the reference model can) -- this still
+ * triggers correctly. During the §7.32 tail-end near-limit-cycle, the
+ * actual rate stays close to the (small, near-constant) commanded rate
+ * and hence close to the reference model too, so e_model stays small and
+ * the gate should NOT fire -- this is the hypothesis this design is meant
+ * to verify numerically (docs/plans/smc-rate-loop-plan.md section 7.33),
+ * not a guarantee.
+ * §7.32の最初の試み（「持続バイアス」（k1増加すべき）と「遅延駆動の発振的
+ * 発散」（k1減少すべき）の区別）は、sのゼロクロスを漏れ積分EMAで計数し、
+ * その回数でゲインの成長をゲーティングするものだった。SILSにより主破綻
+ * （pos_flight+motor-delay=15msの転倒級破綻）の解消は確認できたが、
+ * より狭い第二の破綻を新たに生んだ: 長時間POS_HOLDの終盤、RC入力が
+ * 一切変化していないにも関わらず、ゲートは（そのロジック通り正しく）
+ * 2回以上のクロスを検知してk1を縮小した——しかしこの振動は発散的では
+ * なく、限界的でほぼ収束気味の極限サイクル（機体はぎりぎり十分なゲインの
+ * 際にいた）であり、k1を縮小したことでその際から実際に踏み外し、モータ
+ * デューティの非対称・「衝撃検知」→緊急DISARMに至った。生のクロス
+ * 「回数」だけではこの区別ができない——「何に対して収束しているか」という
+ * 概念自体を持たないため。4点のパラメータ実験（osc_thresh 2.0/3.0、
+ * osc_shrink_ratio 0.5/0.2、osc_thresh=20＝実質無効化）で、このゲートが
+ * 「有るか無いか」の二値的な効き方をすることを確認済み——有効な設定は
+ * 全て末尾の破綻を再現し、無効化すると当初の発散が全面再発する
+ * （docs/plans/smc-rate-loop-plan.md §7.32）。
+ *
+ * §7.33ではクロス計数を**規範モデル**[R11]で置き換える: 各軸に単純な
+ * 非適応の一次遅れモデルを追加し、本コントローラと同じrate_spを入力として
+ * 「健全な閉ループ」の理想的なレート応答rate_modelを生成する。規範モデル
+ * への追従誤差e_model = rate_meas - rate_modelの絶対値を、速い/遅い2つの
+ * 漏れ積分EMAで追跡し、速い方が遅い方を（絶対フロアを超えて）明確に
+ * 上回ったときだけ、実際の応答が規範モデルの理想軌道から発散していると
+ * 判定する——単に「sが非ゼロ」「sがN回ゼロクロスした」ではなく。k1は
+ * このときのみ縮小する。C2ステップの発散時はe_modelが実際に急成長する
+ * （実システムは規範モデルほどrate_spに追従できない）ので、正しく検知
+ * される。§7.32の終盤の限界サイクルでは、実際のレートは指令された
+ * （小さく、ほぼ一定の）レートに近いままであり、規範モデルにも近いままの
+ * はずなのでe_modelは小さく保たれ、ゲートは発火しないはず——これは
+ * 数値的に検証すべき仮説であり（docs/plans/smc-rate-loop-plan.md
+ * §7.33）、保証ではない。
+ *
+ * @design docs/plans/smc-rate-loop-plan.md section 7.33 -- reference-model adaptive STA trial [--]
  * @design controller.hpp -- IController interface (used via AppController)  [OK]
  *
  * References / 参考文献:
@@ -121,15 +192,30 @@
  *        "Adaptive Second-Order Sliding Mode Control of Buck Converters
  *        with Multi-Disturbances," Energies, vol. 15, no. 14, p. 5139,
  *        2022. doi:10.3390/en15145139. -- counts sliding-surface
- *        zero-crossings online to drive a time-varying gain; the basis for
- *        this file's oscillation-gating mechanism (docs/plans/
- *        smc-rate-loop-plan.md section 7.32).
+ *        zero-crossings online to drive a time-varying gain. Section
+ *        7.32's FIRST attempt applied this directly as a crossing-count
+ *        gate; superseded below by [R11]'s reference-model approach after
+ *        SILS found a second failure mode (see the design-history comment
+ *        above and docs/plans/smc-rate-loop-plan.md section 7.32/7.33).
  *   [R10] "New methodology for adaptive sliding mode control with
  *        self-tuning threshold based on chattering detection," Mechanical
  *        Systems and Signal Processing, 2025 (online). A gain-adaptation
  *        law driven directly by the appearance of chattering in the
- *        closed loop, rather than an arbitrary amplitude threshold --
- *        same design family as this file's oscillation gate.
+ *        closed loop, rather than an arbitrary amplitude threshold.
+ *   [R11] W. Barreto da Silveira, P. J. D. de Oliveira Evald,
+ *        G. V. Hollweg, D. M. C. Milbradt, R. V. Tambara, and
+ *        H. A. Gruendling, "Robust Model Reference Adaptive Control With a
+ *        Full Adaptive Super-Twisting Sliding Mode Action: Discrete-Time
+ *        Stability Analysis and Application," International Journal of
+ *        Adaptive Control and Signal Processing, Wiley, 2025.
+ *        doi:10.1002/acs.4101. -- combines a REFERENCE MODEL with an
+ *        adaptive-gain STA: the switching action is driven by the
+ *        MODEL-FOLLOWING error (measured output vs. the reference model's
+ *        own state) and is reduced once the closed loop reaches steady
+ *        state relative to that model, rather than by the raw sliding
+ *        variable's amplitude or crossing count alone. THIS is the
+ *        mechanism section 7.33 (and this file's compute()) implements
+ *        below, replacing section 7.32's zero-crossing count.
  */
 
 #pragma once
@@ -158,38 +244,27 @@ struct AdaptiveSuperTwistingRate {
     float dead_band  = 0.05f;  // [rad/s] filtered-|s| threshold below which k1 is considered "converged" and decays
     float filter_tau = 0.05f;  // [s] low-pass time constant on |s| BEFORE the dead-band comparison -- see compute()'s rationale comment
 
-    // --- Oscillation-gating parameters (docs/plans/smc-rate-loop-plan.md
-    // section 7.32, added after §7.31続報3/4's SILS finding: the dead-band
-    // law above cannot tell a SUSTAINED disturbance bias (torque-
-    // authority=0.4, where growing k1 helps) from an OSCILLATORY,
-    // delay-driven divergence (pos_flight+motor-delay=15ms, where growing
-    // k1 makes phase margin worse and feeds a runaway loop -- SILS showed
-    // duty_max=1.0 saturation and tilt_max~39deg, a tumble-class failure).
-    // Both raise |s|, but a real disturbance biases s in ONE direction
-    // while delay-driven instability makes s cross zero repeatedly with
-    // growing amplitude -- literature basis: Wang et al. 2022 [R9] counts
-    // sliding-surface zero-crossings online to drive a time-varying gain
-    // in an adaptive 2nd-order (twisting) law; this reuses that idea to
-    // GATE growth instead of driving it, prioritized ABOVE the dead-band
-    // decision (see compute()). [R8]'s adaptive-gain STA and [R10]'s
-    // chattering-detection-driven gain law are the same family of "don't
-    // let the gain overestimate/oscillate" design.
-    // --- 発振ゲーティングパラメータ（docs/plans/smc-rate-loop-plan.md
-    // §7.32、§7.31続報3/4のSILS発見を受けて追加: 上の不感帯則は、持続的な
-    // 外乱バイアス（torque-authority=0.4、k1を増やすと助けになる）と、
-    // むだ時間駆動の発振的発散（pos_flight+motor-delay=15ms、k1を増やすと
-    // 位相余裕が悪化し暴走する——SILSでduty_max=1.0飽和・tilt_max~39°の
-    // 転倒級破綻を確認）を区別できない。どちらも|s|を上げるが、実外乱は
-    // sを一方向に偏らせ、遅延駆動の不安定化はsが振幅を増しながら符号を
-    // 繰り返し反転させる——文献的根拠: Wang et al. 2022 [R9]はスライディング
-    // 面のゼロクロス点をオンライン計数し適応2次（twisting）則の時変ゲインを
-    // 駆動する。本設計はこの着想を「駆動」ではなく「ゲーティング（成長の
-    // 抑止）」に転用し、不感帯判定より優先する（compute()参照）。[R8]の
-    // 適応STAゲイン・[R10]のチャタリング検知駆動則も「ゲインを過大推定・
-    // 発振させない」という同系統の設計思想。
-    float osc_tau          = 0.3f;  // [s] decay time constant of cross_ema (crossing-rate window)
-    float osc_thresh       = 2.0f;  // cross_ema threshold above which s is judged "oscillating"
-    float osc_shrink_ratio = 0.5f;  // decay rate while oscillating, as a fraction of adapt_rate (independent of leak_ratio)
+    // --- Reference-model divergence gate (docs/plans/smc-rate-loop-plan.md
+    // section 7.33, [R11] -- supersedes section 7.32's zero-crossing-count
+    // gate, see the file header's design-history comment for why). A
+    // simple first-order lag model, driven by the SAME rate_sp this
+    // controller receives, stands in for "how a healthy closed loop would
+    // respond". Its own state is mref_tau; everything else here governs
+    // how the model-following error e_model = rate_meas - rate_model is
+    // turned into a shrink decision.
+    // --- 規範モデルによる発散ゲート（docs/plans/smc-rate-loop-plan.md
+    // §7.33、[R11]——§7.32のゼロクロス計数ゲートを置き換える、理由はファイル
+    // 冒頭の設計変遷コメント参照）。本コントローラと同じrate_spで駆動される
+    // 単純な一次遅れモデルが「健全な閉ループならどう応答するか」の代役を
+    // 果たす。そのモデル自身の状態はmref_tau、それ以外はここでは規範モデル
+    // への追従誤差e_model = rate_meas - rate_modelを縮小判断へどう変換するか
+    // を司る。
+    float mref_tau          = 0.03f; // [s] reference model's own first-order time constant (target/ideal rate-loop response) -- SEED, SILS-unverified
+    float mref_fast_tau     = 0.05f; // [s] fast leaky-EMA time constant on |e_model| -- reacts within roughly one C2-step timescale
+    float mref_slow_tau     = 0.5f;  // [s] slow leaky-EMA time constant on |e_model| -- the "recent normal" baseline the fast EMA is compared against
+    float mref_growth_ratio = 1.5f;  // fast EMA must exceed slow EMA by this multiple (before mref_abs_floor is added) to judge "diverging"
+    float mref_abs_floor    = 0.05f; // [rad/s] additive floor so two near-zero EMAs (both quiet) don't trigger on ratio noise alone
+    float mref_shrink_ratio = 0.5f;  // decay rate while diverging, as a fraction of adapt_rate (independent of leak_ratio) -- same role/value as section 7.32's osc_shrink_ratio
 
     // --- Same-as-smc_rate_sta.hpp parameters / smc_rate_sta.hppと同じパラメータ ---
     float phi      = 0.02f; // [rad/s] sign() smoothing width (numerical only -- see smc_rate_sta.hpp)
@@ -205,18 +280,23 @@ struct AdaptiveSuperTwistingRate {
     // adaptive k1 itself (k2 is derived from k1 each cycle, not stored
     // independently), PLUS a low-pass filtered SIGNED s (NOT |s|) used
     // ONLY for the dead-band decision (see filter_tau below and its use in
-    // compute() for why filtering s, not |s|, matters).
+    // compute() for why filtering s, not |s|, matters), PLUS the
+    // reference-model state (rate_model) and its fast/slow model-following
+    // error EMAs used for the divergence gate (see mref_* above).
     // 状態: smc_rate_sta.hppと同じ2つの積分状態、加えて適応k1自体
     // （k2はk1から毎サイクル導出、独立には保持しない）、加えて不感帯判定
     // 専用の低域通過フィルタ済み**符号付き**s（|s|ではない、下のfilter_tau・
-    // compute()内のなぜsをフィルタすべきかの説明参照）。
+    // compute()内のなぜsをフィルタすべきかの説明参照）、加えて規範モデルの
+    // 状態（rate_model）と、発散ゲートに使う追従誤差の速い/遅いEMA
+    // （mref_*参照）。
     float integral   = 0;
     float z          = 0;
     float prev_error = 0;
     float k1         = 30.0f;  // current adaptive gain -- reset() seeds this from k1_init
     float s_lpf      = 0;      // low-pass filtered SIGNED s (not |s|!), for the dead-band decision only -- see compute()'s rationale comment
-    float prev_sign_s = 0;     // sign(s) from the previous cycle, for zero-crossing detection (0 = not yet initialized)
-    float cross_ema   = 0;     // leaky zero-crossing-rate indicator (see osc_tau/osc_thresh above)
+    float rate_model   = 0;    // reference model's own state (an idealized rate_meas, driven by rate_sp) -- see mref_tau
+    float e_model_fast = 0;    // fast leaky EMA of |e_model| -- see mref_fast_tau
+    float e_model_slow = 0;    // slow leaky EMA of |e_model| -- see mref_slow_tau
 
     /// Compute the adaptive super-twisting torque output / 適応スーパーツイスティング・トルク出力を計算
     /// @param rate_sp    Target angular rate [rad/s] / 目標角速度
@@ -289,43 +369,54 @@ struct AdaptiveSuperTwistingRate {
         // それを直接反映する。filter_tauがこの切り分けの時間スケールを
         // 決める——速いゼロ平均のチャタリングを平均化できる程度に大きく、
         // 実外乱には即座に反応できる程度に小さく。
-        // --- Oscillation gate (docs/plans/smc-rate-loop-plan.md section
-        // 7.32): count zero-crossings of s (via a leaky EMA, Wang et al.
-        // 2022 [R9]'s idea, applied here to GATE growth rather than drive
-        // it directly). A sustained disturbance bias makes s settle on one
-        // side of zero -- crossings stay rare. Delay-driven divergence
-        // (pos_flight+motor-delay=15ms, §7.31続報3/4's tumble-class
-        // failure) makes s swing across zero repeatedly with growing
-        // amplitude -- crossings become frequent. When "oscillating" is
-        // true, k1 is forced to shrink EVEN IF |LPF(s)| is still above
-        // dead_band, because in that regime growing k1 is exactly what
-        // feeds the runaway (less phase margin -> bigger swings -> still
-        // "not converged" by the dead-band's amplitude-only view).
-        // --- 発振ゲート（docs/plans/smc-rate-loop-plan.md §7.32）: sの
-        // ゼロクロス回数を漏れ積分EMAで計数する（Wang et al. 2022 [R9]の
-        // 着想を、ここでは直接駆動でなく成長の「ゲーティング」に応用）。
-        // 持続的な外乱バイアスはsをゼロの片側に留め、クロスは稀のまま。
-        // 遅延駆動の発散（pos_flight+motor-delay=15ms、§7.31続報3/4の
-        // 転倒級破綻）はsが振幅を増しながら繰り返しゼロを跨ぐ——クロスが
-        // 頻発する。「発振中」と判定されたら、|LPF(s)|が不感帯を超えて
-        // いてもk1を強制的に縮小する——この領域ではk1を増やすことこそが
-        // 暴走を助長する（位相余裕低下→振幅増大→不感帯の振幅だけを見る
-        // 判定では依然「未収束」に見える、という悪循環になるため）。
-        const float sign_s_now = (s_trial > 0.0f) ? 1.0f
-                                : (s_trial < 0.0f) ? -1.0f : prev_sign_s;
-        const bool crossed_zero = (prev_sign_s != 0.0f) && (sign_s_now != prev_sign_s);
+        //
+        // --- Reference-model divergence gate (docs/plans/smc-rate-loop-
+        // plan.md section 7.33, [R11]; supersedes section 7.32's zero-
+        // crossing count -- see file header's design-history comment for
+        // why): a non-adaptive first-order model, driven by the SAME
+        // rate_sp, stands in for how a healthy closed loop should respond.
+        // Its model-following error e_model = rate_meas - rate_model is
+        // tracked with a fast and a slow leaky EMA of |e_model|. When the
+        // fast EMA meaningfully exceeds the slow one (a real, fast-forming
+        // gap between "recent" and "current" tracking quality -- not just
+        // e_model being nonzero, which it always is to some degree), the
+        // actual response is judged to be diverging FROM THE REFERENCE
+        // MODEL's ideal trajectory, and k1 is forced to shrink -- even if
+        // |LPF(s)| is still above dead_band, same priority rule section
+        // 7.32 used for its (now superseded) oscillation flag.
+        // --- 規範モデルによる発散ゲート（docs/plans/smc-rate-loop-plan.md
+        // §7.33、[R11]；§7.32のゼロクロス計数を置き換える——理由はファイル
+        // 冒頭の設計変遷コメント参照）: 本コントローラと同じrate_spで駆動
+        // される非適応の一次遅れモデルが、健全な閉ループならどう応答すべき
+        // かの代役を果たす。その規範モデルへの追従誤差
+        // e_model = rate_meas - rate_modelの絶対値を、速い/遅い2つの漏れ
+        // 積分EMAで追跡する。速い方が遅い方を明確に上回ったとき（「最近」と
+        // 「今」の追従品質の間に実際に急速なギャップが生じている——単に
+        // e_modelが非ゼロというだけではない、これは常にある程度非ゼロ）、
+        // 実際の応答が規範モデルの理想軌道から発散していると判定し、k1を
+        // 強制的に縮小する——|LPF(s)|が不感帯を超えていても、§7.32の
+        // （今は置き換えられた）発振フラグと同じ優先ルールに従う。
+        if (dt > 0) {
+            const float alpha_model = dt / (mref_tau + dt);
+            rate_model += alpha_model * (rate_sp - rate_model);
+        }
+        const float e_model = rate_meas - rate_model;
+        const float abs_e_model = fabsf(e_model);
+        if (dt > 0) {
+            const float alpha_fast = dt / (mref_fast_tau + dt);
+            const float alpha_slow = dt / (mref_slow_tau + dt);
+            e_model_fast += alpha_fast * (abs_e_model - e_model_fast);
+            e_model_slow += alpha_slow * (abs_e_model - e_model_slow);
+        }
+        const bool diverging = e_model_fast > (mref_growth_ratio * e_model_slow + mref_abs_floor);
 
         if (dt > 0) {
             const float alpha_filt = dt / (filter_tau + dt);
             s_lpf += alpha_filt * (s_trial - s_lpf);
 
-            cross_ema -= cross_ema * (dt / osc_tau);
-            if (crossed_zero) cross_ema += 1.0f;
-            const bool oscillating = cross_ema > osc_thresh;
-
             float k1_dot;
-            if (oscillating) {
-                k1_dot = -adapt_rate * osc_shrink_ratio;
+            if (diverging) {
+                k1_dot = -adapt_rate * mref_shrink_ratio;
             } else if (fabsf(s_lpf) > dead_band) {
                 k1_dot = adapt_rate;
             } else {
@@ -335,7 +426,6 @@ struct AdaptiveSuperTwistingRate {
             if (k1 < k1_min) k1 = k1_min;
             if (k1 > k1_max) k1 = k1_max;
         }
-        prev_sign_s = sign_s_now;
         const float k2 = k2_ratio * k1;
 
         // Trial STA torque at the trial integral states -- "trial" because
@@ -412,19 +502,25 @@ struct AdaptiveSuperTwistingRate {
 
     /// Reset internal state, including re-seeding the adaptive gain from
     /// k1_init (so a mode re-entry starts from the tuned baseline, not
-    /// wherever k1 drifted to last flight).
+    /// wherever k1 drifted to last flight), and the reference model
+    /// (so a mode re-entry does not inherit a stale model state from
+    /// whatever rate_sp/rate_meas prevailed at the end of the previous
+    /// flight segment).
     /// 内部状態をリセット。適応ゲインもk1_initから再シードする（モード再
     /// 突入時、前回飛行でk1が漂着した値からではなく調整済みの初期値から
-    /// 始まるように）。
+    /// 始まるように）。規範モデルもリセットする（モード再突入時、前回飛行
+    /// 終端のrate_sp/rate_measに由来する古いモデル状態を引き継がないよう
+    /// に）。
     void reset()
     {
-        integral    = 0;
-        z           = 0;
-        prev_error  = 0;
-        k1          = k1_init;
-        s_lpf       = 0;
-        prev_sign_s = 0;
-        cross_ema   = 0;
+        integral      = 0;
+        z             = 0;
+        prev_error    = 0;
+        k1            = k1_init;
+        s_lpf         = 0;
+        rate_model    = 0;
+        e_model_fast  = 0;
+        e_model_slow  = 0;
     }
 };
 
