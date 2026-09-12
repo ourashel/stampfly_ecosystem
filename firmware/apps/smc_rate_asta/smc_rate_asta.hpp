@@ -386,6 +386,35 @@ struct AdaptiveSuperTwistingRate {
     // 成長とみなさない。
     float mref_dwell_time   = 0.06f; // [s] the growing condition must hold continuously this long before "diverging" latches -- SEED, SILS-unverified
 
+    // k1_slew_max (section 7.38, docs/plans/smc-rate-loop-plan.md):
+    // additional hard cap on |k1_dot|, independent of adapt_rate/
+    // leak_ratio/mref_shrink_ratio. Investigated as a candidate fix for
+    // duty_max=0.9691 (vs gate <0.9) on pos_flight+motor-delay=15ms's C2
+    // step -- root-caused via fresh (bug-fixed, see the trajectory.csv
+    // staleness note in docs/plans/smc-rate-loop-plan.md section 7.37) SILS
+    // data to a roll+pitch torque peak (NOT yaw, correcting an earlier
+    // mis-diagnosis from stale data) that happens to land on the same
+    // motor corner at the same instant -- not obviously a k1-transient
+    // artifact, but cheap to test and rule out (or in) via SILS rather
+    // than reasoning about it in the abstract. Default is intentionally
+    // large enough to be a no-op (matches or exceeds adapt_rate/
+    // mref_shrink_ratio*adapt_rate's own already-bounded rates) unless
+    // explicitly lowered.
+    // k1_slew_max（§7.38、docs/plans/smc-rate-loop-plan.md）:
+    // adapt_rate/leak_ratio/mref_shrink_ratioとは独立な|k1_dot|への追加の
+    // 上限。`pos_flight+motor-delay=15ms`のC2ステップでのduty_max=0.9691
+    // （ゲート<0.9）の改善候補として調査——新しい（バグ修正済み、
+    // trajectory.csvの陳腐化についてはdocs/plans/smc-rate-loop-plan.md
+    // §7.37参照）SILSデータで根本原因を特定したところ、ヨーではなく
+    // ロール+ピッチのトルクピーク（陳腐化データによる以前の誤診断を
+    // 訂正）がたまたま同じ瞬間に同じモータコーナーへ重なったことが原因と
+    // 判明しており、明らかにk1の過渡変化によるものとは言えないが、
+    // 抽象的に議論するよりSILSで安価に検証（棄却または採用）できる。
+    // 既定値は意図的に大きく（adapt_rate/mref_shrink_ratio*adapt_rate
+    // 自体が既に持つ律速と同等以上）、明示的に下げない限り無効化された
+    // ままになる。
+    float k1_slew_max = 1000.0f; // [same units as k1, per second] SEED (effectively disabled at default) -- SILS-unverified
+
     // --- Same-as-smc_rate_sta.hpp parameters / smc_rate_sta.hppと同じパラメータ ---
     float phi      = 0.02f; // [rad/s] sign() smoothing width (numerical only -- see smc_rate_sta.hpp)
     float lambda_i = 0;     // [1/s] PI-surface integral gain on s itself (0 = textbook STA on s=e)
@@ -582,6 +611,11 @@ struct AdaptiveSuperTwistingRate {
             } else {
                 k1_dot = -adapt_rate * leak_ratio;
             }
+            // Slew-rate cap (section 7.38) -- see k1_slew_max's rationale
+            // comment above.
+            // スルーレート上限（§7.38）-- 根拠は上のk1_slew_maxのコメント参照。
+            if (k1_dot >  k1_slew_max) k1_dot =  k1_slew_max;
+            if (k1_dot < -k1_slew_max) k1_dot = -k1_slew_max;
             k1 += k1_dot * dt;
             if (k1 < k1_min) k1 = k1_min;
             if (k1 > k1_max) k1 = k1_max;
