@@ -949,25 +949,36 @@ namespace param_vars {
     float smc_asta_roll_k2_ratio   = 0.5f;    // seed = smc_rate_sta's k2/k1
     float smc_asta_roll_adapt_rate = 20.0f;   // [1/s, same units as k1] NEW parameter, unverified
     float smc_asta_roll_leak_ratio = 0.2f;    // NEW parameter, unverified
-    float smc_asta_roll_dead_band  = 0.05f;   // [rad/s] NEW parameter, unverified
-    // filter_tau (2026-09-12, docs/plans/smc-rate-loop-plan.md section
-    // 7.31続報): a RAW-|s| dead-band could not satisfy both
-    // torque-authority=0.4 (needs k1 to grow) and noise n1 (should NOT grow
-    // k1) with a single k1_max -- lowering k1_max fixed torque-authority
-    // but broke noise n1, and widening dead_band to compensate broke
-    // torque-authority instead. Filtering |s| BEFORE the dead-band
-    // comparison (smc_rate_asta.hpp's s_abs_lpf) separates the two by time
-    // structure: sustained disturbance keeps the filtered value elevated,
-    // noise's brief spikes average out. 0.05s seed -- SILS-tune from here.
-    // filter_tau（2026-09-12、docs/plans/smc-rate-loop-plan.md §7.31続報）:
-    // 生の|s|での不感帯判定では、単一のk1_maxでtorque-authority=0.4
-    // （k1を成長させたい）とnoise n1（成長させたくない）を両立できなかった
-    // ——k1_maxを下げるとtorque-authorityは直るがnoise n1が壊れ、代わりに
-    // dead_bandを広げるとtorque-authorityが壊れた。不感帯判定の前に|s|を
-    // フィルタする（smc_rate_asta.hppのs_abs_lpf）ことで、時間構造の違いで
-    // 両者を分離する: 持続外乱はフィルタ後の値を高く保つが、ノイズの
-    // 一瞬のスパイクは平均化される。0.05sをシードとしSILSでチューニング。
-    float smc_asta_roll_filter_tau = 0.05f;   // [s] NEW parameter, unverified
+    // dead_band/filter_tau (2026-09-12, docs/plans/smc-rate-loop-plan.md
+    // section 7.31/7.31続報/7.31続報2): a raw-|s| dead-band could not
+    // satisfy both torque-authority=0.4 (needs k1 to grow) and noise n1
+    // (should NOT grow k1) with a single k1_max. Filtering the SIGNED s
+    // (NOT |s| -- an earlier version's sign error) before the dead-band
+    // comparison (smc_rate_asta.hpp's s_lpf) separates the two by time
+    // structure. A 27-point grid (k1_max x dead_band x filter_tau) plus an
+    // 18-point local refinement (110+ SILS runs total) found k1_max is
+    // IRRELEVANT once this filter is in place (k1 never reaches even the
+    // lowest k1_max tried) and dead_band=0.03/filter_tau=0.3 is the best
+    // point: torque-authority=0.4 PASSES (2.69deg) and noise n1 is the
+    // closest of any setting tried (3.31deg vs the <3.0deg gate) but still
+    // FAILS -- a local optimum, not a full solution. Adopted as the new
+    // seed since it's strictly better than the original 0.05/0.05 seed on
+    // both axes; yaw untested, left at its original seed.
+    // dead_band/filter_tau（2026-09-12、docs/plans/smc-rate-loop-plan.md
+    // §7.31/§7.31続報/§7.31続報2）: 生の|s|での不感帯判定では、単一の
+    // k1_maxでtorque-authority=0.4（k1を成長させたい）とnoise n1
+    // （成長させたくない）を両立できなかった。不感帯判定の前に**符号付き**
+    // s（|s|ではない——初期実装の符号の誤り）をフィルタする
+    // （smc_rate_asta.hppのs_lpf）ことで時間構造の違いを利用する。27点の
+    // 格子探索（k1_max×dead_band×filter_tau）+18点の近傍探索（計110回超の
+    // SILS実行）の結果、このフィルタ導入後はk1_maxが無関係と判明（k1が
+    // 最も低いk1_max候補にすら到達しない）、dead_band=0.03/filter_tau=0.3
+    // が最良点: torque-authority=0.4はPASS（2.69°）、noise n1も全設定中
+    // 最良（3.31°、ゲート<3.0°には未達）——局所最適であり完全な解決では
+    // ない。両軸で旧来の0.05/0.05シードより明確に優れるため新シードとして
+    // 採用。yawは未検証のため旧シードのまま。
+    float smc_asta_roll_dead_band  = 0.03f;   // [rad/s] tuned seed (see comment above) -- was 0.05
+    float smc_asta_roll_filter_tau = 0.3f;    // [s] tuned seed (see comment above) -- was 0.05
     float smc_asta_roll_phi        = 0.02f;   // [rad/s] seed = smc_rate_sta current
     float smc_asta_roll_lambda_i   = 6.0f;    // [1/s] seed = smc_rate_sta current
     float smc_asta_roll_e_reset    = 0.75f;   // [rad/s] seed = smc_rate_sta current
@@ -978,8 +989,8 @@ namespace param_vars {
     float smc_asta_pitch_k2_ratio   = 0.5f;
     float smc_asta_pitch_adapt_rate = 20.0f;
     float smc_asta_pitch_leak_ratio = 0.2f;
-    float smc_asta_pitch_dead_band  = 0.05f;
-    float smc_asta_pitch_filter_tau = 0.05f;
+    float smc_asta_pitch_dead_band  = 0.03f;   // tuned seed, see roll's comment above -- was 0.05
+    float smc_asta_pitch_filter_tau = 0.3f;    // tuned seed, see roll's comment above -- was 0.05
     float smc_asta_pitch_phi        = 0.02f;
     float smc_asta_pitch_lambda_i   = 6.0f;
     float smc_asta_pitch_e_reset    = 0.75f;
@@ -1617,8 +1628,8 @@ static const ParamEntry table[] = {
     {"smc_asta.roll.k2_ratio",   ParamType::FLOAT, &smc_asta_roll_k2_ratio,   0.5f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.roll.adapt_rate", ParamType::FLOAT, &smc_asta_roll_adapt_rate, 20.0f,  0.0f, 1000.0f, &notifyControllerReload},
     {"smc_asta.roll.leak_ratio", ParamType::FLOAT, &smc_asta_roll_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
-    {"smc_asta.roll.dead_band",  ParamType::FLOAT, &smc_asta_roll_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
-    {"smc_asta.roll.filter_tau", ParamType::FLOAT, &smc_asta_roll_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.roll.dead_band",  ParamType::FLOAT, &smc_asta_roll_dead_band,  0.03f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.roll.filter_tau", ParamType::FLOAT, &smc_asta_roll_filter_tau, 0.3f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.roll.phi",        ParamType::FLOAT, &smc_asta_roll_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.roll.lambda_i",   ParamType::FLOAT, &smc_asta_roll_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.roll.e_reset",    ParamType::FLOAT, &smc_asta_roll_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
@@ -1629,8 +1640,8 @@ static const ParamEntry table[] = {
     {"smc_asta.pitch.k2_ratio",   ParamType::FLOAT, &smc_asta_pitch_k2_ratio,   0.5f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.pitch.adapt_rate", ParamType::FLOAT, &smc_asta_pitch_adapt_rate, 20.0f,  0.0f, 1000.0f, &notifyControllerReload},
     {"smc_asta.pitch.leak_ratio", ParamType::FLOAT, &smc_asta_pitch_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
-    {"smc_asta.pitch.dead_band",  ParamType::FLOAT, &smc_asta_pitch_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
-    {"smc_asta.pitch.filter_tau", ParamType::FLOAT, &smc_asta_pitch_filter_tau, 0.05f,  0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.dead_band",  ParamType::FLOAT, &smc_asta_pitch_dead_band,  0.03f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.filter_tau", ParamType::FLOAT, &smc_asta_pitch_filter_tau, 0.3f,   0.0f, 2.0f,    &notifyControllerReload},
     {"smc_asta.pitch.phi",        ParamType::FLOAT, &smc_asta_pitch_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
     {"smc_asta.pitch.lambda_i",   ParamType::FLOAT, &smc_asta_pitch_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
     {"smc_asta.pitch.e_reset",    ParamType::FLOAT, &smc_asta_pitch_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
