@@ -2699,6 +2699,62 @@ noise=3.31°FAIL僅差）が到達した最良点であり、これ以上の細�
 
 **変更ファイル**: なし（既存の`--param`機構での探索実行のみ）
 
+#### 7.31続報3【重要】`dead_band=0.03/filter_tau=0.3`は過学習——`pos_flight+motor-delay=15ms`で§7.13級の壊滅的破綻が再発、デフォルトを差し戻し
+
+ユーザーから実機書き込みの要望があったが、`noise n1`未解決・複合シナリオ
+未確認の状態での実機投入は見送り、**まず回帰確認を完了させる**方針とした
+（ユーザー判断）。これが重大な問題の早期発見につながった。
+
+`dead_band=0.03, filter_tau=0.3`（新デフォルトとして一旦採用）で
+`stab_flight`/`pos_flight`/`stab_combined_aggressive`/`acro_flight`の
+8条件を回帰確認したところ:
+
+| シナリオ | 条件 | 結果 |
+|---|---|---|
+| stab_flight | nominal | **3.23° FAIL（新規退行、旧デフォルトは2.86°PASS）** |
+| stab_flight | motor-delay=15ms | 2.11° PASS |
+| stab_flight | torque-authority=0.55 | 2.90° PASS |
+| pos_flight | nominal | 0.75° PASS |
+| **pos_flight** | **motor-delay=15ms** | **tilt_max=30.72°・att_rmse=10.44° 壊滅的FAIL** |
+| stab_combined_aggressive | nominal | 3.86° PASS |
+| stab_combined_aggressive | motor-delay=15ms | 3.27° PASS |
+| acro_flight | nominal | 1.91° PASS |
+
+**`pos_flight+motor-delay=15ms`の`tilt_max=30.72°`は、§7.13で最初に
+発見された「複合入力+motor-delay=15msでの壊滅的破綻」（旧k1=140/k2=70で
+35.92°/26.47°、転倒級）と同種・同規模の破綻——もしこの状態で実機投入
+していれば、実機で同じ壊滅的破綻（転倒）を再現していた可能性が高い。**
+
+**原因**: `dead_band=0.03/filter_tau=0.3`は、§7.31続報2の格子・近傍探索で
+`torque-authority=0.4`と`noise n1`という**2つの狭い条件だけ**を見て
+選んだ設定であり、より広い条件（基本的なnominal姿勢制御、複合機動+
+motor-delayという複雑な相互作用）での安定性を検証せずに採用してしまった
+——典型的な過学習。§7.13が既に「単一・少数シナリオでの局所最適に陥り
+やすく、複数アーキタイプでの同時検証を最初から徹底する必要がある」と
+教訓化していたにも関わらず、今回も同じ轍を踏みかけた。
+
+**対処**: `params.cpp`の`smc_asta.{roll,pitch}.{dead_band,filter_tau}`を
+**0.05/0.05（元の未調整シード値）へ差し戻した**——未調整だが壊滅的では
+ない状態に戻し、広範な再チューニングを経るまでこれを既定とする。
+
+**教訓**: 適応則のパラメータチューニングにおいても、固定ゲインSTAと
+全く同じ実機投入ゲートの規律（複数アーキタイプ×複数摂動での同時検証を
+経てから「良い設定」と判断する）を最初から適用すべきだった——2条件
+だけでの部分的な改善を見て「デフォルト更新」と判断したのは早計だった。
+
+**結論**: `smc_rate_asta`は実機投入水準にはまだ到達していない。
+`torque-authority=0.4`/`noise n1`の両立という当初の目標も未達成のまま、
+今回さらに`pos_flight+motor-delay=15ms`という新たな検証すべき軸が
+明確になった——今後この設定を調整する際は、必ず`stab_flight`/
+`pos_flight`/`stab_combined_aggressive`の3アーキタイプ×{nominal,
+motor-delay=15ms, torque-authority=0.4/0.55, noise n1}を毎回セットで
+確認すること。`smc_rate_sta`自体は引き続き無変更。
+
+**変更ファイル**:
+- `firmware/vehicle/components/sf_core/params.cpp` —
+  `smc_asta.{roll,pitch}.{dead_band,filter_tau}`を0.03/0.3から
+  0.05/0.05（元の未調整シード）へ差し戻し
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて
