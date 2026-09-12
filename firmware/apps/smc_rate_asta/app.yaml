@@ -1,0 +1,5 @@
+type: embedded
+from: 11_app_controller
+sils: true
+description: レートループ(roll/pitch/yaw)を適応スイッチングゲイン付きスーパーツイスティング法（2次スライディングモード）に置き換え、他はPidControllerへ委譲するIController
+name: smc_rate_asta

@@ -885,6 +885,98 @@ namespace param_vars {
     float smc_pos_sta_vely_e_reset   = 1.25f;   // [m/s]
     float smc_pos_sta_vely_z_leak_tau = 0.5f;   // [s]
 
+    // Adaptive-gain super-twisting rate-loop gains (firmware/apps/
+    // smc_rate_asta, AdaptiveSuperTwistingRate) -- see smc_rate_asta.hpp
+    // for the control law and docs/plans/smc-rate-loop-plan.md §7.31 for
+    // the motivation (§3.7's non-monotonic fixed-gain trade-off between
+    // torque-authority=0.4/0.55 robustness and motor-delay=15ms stability
+    // in smc_rate_sta) and results. Own, independent key space from
+    // smc_sta.*/smc_pos_sta.* -- smc_rate_sta itself is UNCHANGED, this is
+    // a separate app per explicit user instruction (2026-09-12).
+    //
+    // SEED VALUES ONLY, NOT YET SILS-TUNED (2026-09-12, just implemented).
+    // k1_init/phi/lambda_i/e_reset/z_leak_tau: copied from smc_rate_sta's
+    // CURRENT tuned k1/phi/lambda_i/e_reset/z_leak_tau (reusing a proven
+    // starting point). k2_ratio: smc_rate_sta's own k2/k1 ratio (30/60=0.5
+    // roll/pitch, 7.4/15.2~=0.487 yaw, rounded to 0.5 for all 3 -- k2 is
+    // DERIVED from k1 each cycle, not independently tuned). k1_min: half of
+    // k1_init (never adapt below a baseline that still has some authority).
+    // k1_max: 2.5x k1_init (a round number giving headroom above the
+    // fixed-gain values that section 3.3 found still fell short of fully
+    // solving torque-authority=0.4/0.55 -- not derived from a specific
+    // verified operating point). adapt_rate/leak_ratio/dead_band: new
+    // parameters this design introduces (no fixed-gain analog to copy);
+    // dead_band=0.05 rad/s is a rate-error scale guess to avoid growing k1
+    // on residual sensor/discretization noise near s=0 (see §7.30続報6/8's
+    // UNRELATED finding that a different filter, the ESKF's accel-comp
+    // tracker, showed noise-driven gain-like growth risk -- applied here as
+    // a design precaution only); adapt_rate=20 (roll/pitch) lets k1 traverse
+    // its full [k1_min,k1_max] range in a few seconds; yaw's adapt_rate is
+    // scaled down by yaw's smaller k1 (15.2/60~=0.25x) as a rough starting
+    // guess. EXPECT SILS TUNING before any real-hardware consideration,
+    // matching smc_rate_sta's own §7.11-7.20 process -- see the verification
+    // plan in docs/plans/smc-rate-loop-plan.md §7.31.
+    // 適応ゲイン・スーパーツイスティング・レートループのゲイン
+    // （firmware/apps/smc_rate_asta、AdaptiveSuperTwistingRate）-- 制御則は
+    // smc_rate_asta.hpp、動機と結果はdocs/plans/smc-rate-loop-plan.md §7.31
+    // 参照（§3.7のtorque-authority=0.4/0.55頑健性とmotor-delay=15ms安定性の
+    // 間の非単調な固定ゲイントレードオフ）。smc_sta.*/smc_pos_sta.*とは
+    // 独立したキー空間——smc_rate_sta自体は無変更、ユーザーの明示的指示
+    // （2026-09-12）により別appとする。
+    //
+    // シード値のみ、SILS未チューニング（2026-09-12、実装直後）。
+    // k1_init/phi/lambda_i/e_reset/z_leak_tau: smc_rate_staの現行調整済み
+    // 値をそのまま流用（実績ある出発点の再利用）。k2_ratio: smc_rate_sta
+    // 自身のk2/k1比（roll/pitch=30/60=0.5、yaw=7.4/15.2~=0.487、3軸とも
+    // 0.5に丸め——k2はk1から毎サイクル導出し独立調整しない）。k1_min:
+    // k1_initの半分（権限が全く無くなる下限まで下げない）。k1_max:
+    // k1_initの2.5倍（§3.3でtorque-authority=0.4/0.55を完全には解決
+    // しきれなかった固定ゲイン値より余裕を持たせたキリの良い数——特定の
+    // 検証済み動作点から導出したものではない）。adapt_rate/leak_ratio/
+    // dead_band: 本設計で新規導入するパラメータ（コピー元となる固定ゲイン
+    // 版の対応値はない）——dead_band=0.05rad/sはs=0近傍の残留センサ/離散化
+    // ノイズでk1が成長し続けないようにするレート誤差スケールの推測値
+    // （§7.30続報6/8で見つけた別件——ESKFのaccel-compトラッカーにおける
+    // ノイズ駆動的なゲイン類似成長リスク——を設計上の予防措置として参考に
+    // したのみで無関係）。adapt_rate=20（roll/pitch）はk1が[k1_min,k1_max]
+    // 全域を数秒で走査できる値。yawのadapt_rateはyawのk1が小さいこと
+    // （15.2/60~=0.25倍）に合わせて粗く縮小した出発値。実機投入検討前に
+    // SILSチューニングを想定する（smc_rate_sta自身の§7.11-7.20と同じ
+    // プロセス）——検証計画はdocs/plans/smc-rate-loop-plan.md §7.31参照。
+    float smc_asta_roll_k1_init    = 60.0f;   // [rad/s^2 per sqrt(rad/s)] seed = smc_rate_sta current k1
+    float smc_asta_roll_k1_min     = 30.0f;   // half of k1_init
+    float smc_asta_roll_k1_max     = 150.0f;  // 2.5x k1_init
+    float smc_asta_roll_k2_ratio   = 0.5f;    // seed = smc_rate_sta's k2/k1
+    float smc_asta_roll_adapt_rate = 20.0f;   // [1/s, same units as k1] NEW parameter, unverified
+    float smc_asta_roll_leak_ratio = 0.2f;    // NEW parameter, unverified
+    float smc_asta_roll_dead_band  = 0.05f;   // [rad/s] NEW parameter, unverified
+    float smc_asta_roll_phi        = 0.02f;   // [rad/s] seed = smc_rate_sta current
+    float smc_asta_roll_lambda_i   = 6.0f;    // [1/s] seed = smc_rate_sta current
+    float smc_asta_roll_e_reset    = 0.75f;   // [rad/s] seed = smc_rate_sta current
+    float smc_asta_roll_z_leak_tau = 0.5f;    // [s] seed = smc_rate_sta current
+    float smc_asta_pitch_k1_init    = 60.0f;
+    float smc_asta_pitch_k1_min     = 30.0f;
+    float smc_asta_pitch_k1_max     = 150.0f;
+    float smc_asta_pitch_k2_ratio   = 0.5f;
+    float smc_asta_pitch_adapt_rate = 20.0f;
+    float smc_asta_pitch_leak_ratio = 0.2f;
+    float smc_asta_pitch_dead_band  = 0.05f;
+    float smc_asta_pitch_phi        = 0.02f;
+    float smc_asta_pitch_lambda_i   = 6.0f;
+    float smc_asta_pitch_e_reset    = 0.75f;
+    float smc_asta_pitch_z_leak_tau = 0.5f;
+    float smc_asta_yaw_k1_init    = 15.2f;
+    float smc_asta_yaw_k1_min     = 7.6f;
+    float smc_asta_yaw_k1_max     = 38.0f;
+    float smc_asta_yaw_k2_ratio   = 0.5f;
+    float smc_asta_yaw_adapt_rate = 5.0f;    // scaled down from roll/pitch by ~yaw's k1/roll's k1
+    float smc_asta_yaw_leak_ratio = 0.2f;
+    float smc_asta_yaw_dead_band  = 0.05f;
+    float smc_asta_yaw_phi        = 0.04f;
+    float smc_asta_yaw_lambda_i   = 1.25f;
+    float smc_asta_yaw_e_reset    = 1.5f;
+    float smc_asta_yaw_z_leak_tau = 1.0f;
+
     // Sliding-mode horizontal-VELOCITY-loop gains (firmware/apps/smc_pos,
     // smc_vel.hpp) -- plugged into PidController's vel_x_/vel_y_ stage via
     // setVelocityLawOverride() (pid_controller.hpp). Unused by the default
@@ -1490,6 +1582,48 @@ static const ParamEntry table[] = {
     {"smc_sta.roll.z_leak_tau",  ParamType::FLOAT, &smc_sta_roll_z_leak_tau,  0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_sta.pitch.z_leak_tau", ParamType::FLOAT, &smc_sta_pitch_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_sta.yaw.z_leak_tau",   ParamType::FLOAT, &smc_sta_yaw_z_leak_tau,   1.0f, 0.0f, 10.0f, &notifyControllerReload},
+    // Adaptive-gain super-twisting rate-loop gains (firmware/apps/
+    // smc_rate_asta) -- see the param_vars comment above for the seed
+    // derivation and motivation. smc_rate_sta itself is unchanged; this is
+    // a separate, independent app. Unused by vehicle/smc_rate/smc_rate_sta/
+    // smc_pos/smc_pos_sta.
+    // 適応ゲイン・スーパーツイスティング・レートループのゲイン
+    // （firmware/apps/smc_rate_asta）-- シード値の導出・動機は上の
+    // param_varsコメント参照。smc_rate_sta自体は無変更、これは別・独立の
+    // app。vehicle/smc_rate/smc_rate_sta/smc_pos/smc_pos_staでは未使用。
+    {"smc_asta.roll.k1_init",    ParamType::FLOAT, &smc_asta_roll_k1_init,    60.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.roll.k1_min",     ParamType::FLOAT, &smc_asta_roll_k1_min,     30.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.roll.k1_max",     ParamType::FLOAT, &smc_asta_roll_k1_max,     150.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.roll.k2_ratio",   ParamType::FLOAT, &smc_asta_roll_k2_ratio,   0.5f,   0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.roll.adapt_rate", ParamType::FLOAT, &smc_asta_roll_adapt_rate, 20.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.roll.leak_ratio", ParamType::FLOAT, &smc_asta_roll_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.roll.dead_band",  ParamType::FLOAT, &smc_asta_roll_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.roll.phi",        ParamType::FLOAT, &smc_asta_roll_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_asta.roll.lambda_i",   ParamType::FLOAT, &smc_asta_roll_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_asta.roll.e_reset",    ParamType::FLOAT, &smc_asta_roll_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.roll.z_leak_tau", ParamType::FLOAT, &smc_asta_roll_z_leak_tau, 0.5f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.k1_init",    ParamType::FLOAT, &smc_asta_pitch_k1_init,    60.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.pitch.k1_min",     ParamType::FLOAT, &smc_asta_pitch_k1_min,     30.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.pitch.k1_max",     ParamType::FLOAT, &smc_asta_pitch_k1_max,     150.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.pitch.k2_ratio",   ParamType::FLOAT, &smc_asta_pitch_k2_ratio,   0.5f,   0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.adapt_rate", ParamType::FLOAT, &smc_asta_pitch_adapt_rate, 20.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.pitch.leak_ratio", ParamType::FLOAT, &smc_asta_pitch_leak_ratio, 0.2f,   0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.dead_band",  ParamType::FLOAT, &smc_asta_pitch_dead_band,  0.05f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.phi",        ParamType::FLOAT, &smc_asta_pitch_phi,        0.02f,  0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_asta.pitch.lambda_i",   ParamType::FLOAT, &smc_asta_pitch_lambda_i,   6.0f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_asta.pitch.e_reset",    ParamType::FLOAT, &smc_asta_pitch_e_reset,    0.75f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.pitch.z_leak_tau", ParamType::FLOAT, &smc_asta_pitch_z_leak_tau, 0.5f,   0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.k1_init",    ParamType::FLOAT, &smc_asta_yaw_k1_init,    15.2f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.yaw.k1_min",     ParamType::FLOAT, &smc_asta_yaw_k1_min,     7.6f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.yaw.k1_max",     ParamType::FLOAT, &smc_asta_yaw_k1_max,     38.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.yaw.k2_ratio",   ParamType::FLOAT, &smc_asta_yaw_k2_ratio,   0.5f,  0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.yaw.adapt_rate", ParamType::FLOAT, &smc_asta_yaw_adapt_rate, 5.0f,  0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_asta.yaw.leak_ratio", ParamType::FLOAT, &smc_asta_yaw_leak_ratio, 0.2f,  0.0f, 2.0f,    &notifyControllerReload},
+    {"smc_asta.yaw.dead_band",  ParamType::FLOAT, &smc_asta_yaw_dead_band,  0.05f, 0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.yaw.phi",        ParamType::FLOAT, &smc_asta_yaw_phi,        0.04f, 0.001f, 2.0f,  &notifyControllerReload},
+    {"smc_asta.yaw.lambda_i",   ParamType::FLOAT, &smc_asta_yaw_lambda_i,   1.25f, 0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_asta.yaw.e_reset",    ParamType::FLOAT, &smc_asta_yaw_e_reset,    1.5f,  0.0f, 5.0f,    &notifyControllerReload},
+    {"smc_asta.yaw.z_leak_tau", ParamType::FLOAT, &smc_asta_yaw_z_leak_tau, 1.0f,  0.0f, 10.0f,   &notifyControllerReload},
     // smc_pos_sta gains (firmware/apps/smc_pos_sta) -- see the param_vars
     // comment above for the seed derivation. Unused by the default vehicle/
     // smc_rate/smc_rate_sta/smc_pos builds.
