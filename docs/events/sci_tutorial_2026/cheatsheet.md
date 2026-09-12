@@ -40,7 +40,7 @@
 | `sf docs` | ドキュメントサイトのビルド・配信 |
 | `sf upgrade` | 最新版を pull し環境を再同期 |
 
-**`sf sysid noise` の入力 CSV について:** `sf log wifi -o file.csv` が出す CSV は gyro/accel の列しかなく、baro/tof は含まれない。baro/tof のノイズ評価は現行ファームでは対象外（`sf log capture` → `sf log convert` は旧ファーム vehicle_old の USB バイナリログ専用で、現行ファームでは動かない）。また、静止区間だけを解析するために `--static-only` を付けることを推奨する。
+**`sf sysid noise` の入力について:** `sf log wifi` が保存するフライトログ一式（`.sflog.zip`：信号ごとの CSV をまとめた zip 1個、埋め値なし）には gyro/accel の CSV しかなく、baro/tof は含まれない。baro/tof のノイズ評価は現行ファームでは対象外（`sf log capture` → `sf log convert` は旧ファーム vehicle_old の USB バイナリログ専用で、現行ファームでは動かない）。また、静止区間だけを解析するために `--static-only` を付けることを推奨する。
 
 全コマンドは `lib/sfcli/commands/` に実装がある。
 
@@ -66,7 +66,7 @@ param save
 reboot
 ```
 
-続けてコントローラとペアリングする（コントローラの LCD パネルボタンを押しながら電源投入 → 機体のボタンを 3 秒以上押し続け、双方のビープで離す。5 秒以上押し続けるとシステムリセット）。PC側: WiFi設定でSSID `StampFly-XXYY` に接続（パスワードは既定 `stampfly`）。接続の確認は `sf telemetry`（IP指定不要、既定192.168.10.1で待ち受け）。
+続けてコントローラとペアリングする（コントローラの LCD パネルボタンを押しながら電源投入 → 機体のボタンを 3 秒以上押し続けビープで離す → コントローラ画面の一覧から自分の機体〈MAC下4桁。`mac` コマンドで確認しラベルを貼っておく〉を選んでボタンで確定。5 秒以上押し続けるとシステムリセット）。PC側: WiFi設定でSSID `StampFly-XXYY` に接続（パスワードは既定 `stampfly`）。接続の確認は `sf telemetry`（IP指定不要、既定192.168.10.1で待ち受け）。
 
 ```
 sf telemetry
@@ -184,7 +184,7 @@ In `sf --help` display order.
 | `sf docs` | Build/serve the documentation site |
 | `sf upgrade` | Pull the latest changes and resync the environment |
 
-**About `sf sysid noise`'s input CSV:** the CSV from `sf log wifi -o file.csv` only has gyro/accel columns -- no baro/tof. Baro/tof noise characterization is not available with the current firmware (`sf log capture` -> `sf log convert` reads the legacy vehicle_old USB binary log only and does not work with the current firmware). Also add `--static-only` so the analysis only uses stationary segments.
+**About `sf sysid noise`'s input:** the flight-log bundle (`.sflog.zip` -- a zip holding one CSV per signal at its native rate, no filled-in values) that `sf log wifi` saves only has gyro/accel CSVs -- no baro/tof. Baro/tof noise characterization is not available with the current firmware (`sf log capture` -> `sf log convert` reads the legacy vehicle_old USB binary log only and does not work with the current firmware). Also add `--static-only` so the analysis only uses stationary segments.
 
 All commands are implemented under `lib/sfcli/commands/`.
 
@@ -210,7 +210,7 @@ param save
 reboot
 ```
 
-Then pair the controller (hold the controller's LCD panel button while powering on, then hold the vehicle button for 3 s or more and release at the double beep; holding 5 s or more triggers a system reset). PC side: join SSID `StampFly-XXYY` in WiFi settings (default password `stampfly`). Connectivity check: `sf telemetry` (no `--ip` needed; listens on the default 192.168.10.1).
+Then pair the controller (hold the controller's LCD panel button while powering on, then hold the vehicle button for 3 s or more and release at the beep, then pick your own vehicle — last 4 hex digits of its MAC, check it with the `mac` command and stick a label on the vehicle — from the controller's on-screen list and confirm; holding 5 s or more triggers a system reset). PC side: join SSID `StampFly-XXYY` in WiFi settings (default password `stampfly`). Connectivity check: `sf telemetry` (no `--ip` needed; listens on the default 192.168.10.1).
 
 ```
 sf telemetry

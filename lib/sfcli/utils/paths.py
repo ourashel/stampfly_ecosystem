@@ -154,6 +154,39 @@ class Paths:
         log_dir.mkdir(exist_ok=True)
         return log_dir
 
+    def latest_bundle(self) -> Optional[Path]:
+        """Most recent StampFly flight-log bundle in logs/ (a `.sflog.zip`,
+        any renamed zip, or an extracted directory -- detected by content),
+        or None if the directory does not exist or holds no bundle.
+
+        Shared by every command that defaults to "the latest log" when no
+        path is given (`sf trim analyze`, `sf cal plot`, ...) -- see
+        docs/plans/flight-log-format-plan.md. Does not create logs/ (unlike
+        logs() above): a plain existence check is enough here and callers
+        should not conjure a log directory just to discover it is empty.
+        logs/ にある最新の StampFly フライトログ一式（`*.sflog.zip`）。
+        ディレクトリが無い、または一式が1つも無ければ None。
+
+        「未指定なら最新ログを使う」動作を持つ全コマンド（`sf trim
+        analyze`、`sf cal plot` 等）で共有する。上の logs() と異なりディレ
+        クトリは作らない -- ここでは存在確認だけで十分で、空だと分かる
+        だけのために logs ディレクトリを作り出す必要はない。
+        """
+        log_dir = self.root() / "logs"
+        if not log_dir.exists():
+            return None
+        # Detect bundles by CONTENT (meta.json inside a zip or a directory),
+        # not by file name, so a bundle renamed to `.sflog` or `.zip`, or an
+        # extracted directory, is found as well.
+        # 一式は名前ではなく中身（zip 内またはフォルダ内の meta.json）で判定する。
+        # `.sflog` や `.zip` に改名したもの、展開済みフォルダも見つかる。
+        import sflog  # local import: keep paths.py importable without pandas
+        candidates = [f for f in log_dir.iterdir() if sflog.is_bundle(f)]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        return candidates[0]
+
     def config_dir(self) -> Path:
         """Get .sf/ configuration directory"""
         return self.root() / ".sf"

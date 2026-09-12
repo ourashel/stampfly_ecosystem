@@ -24,7 +24,8 @@
  * ループで登録する（R6: レジストリパターン、extern グローバルのコンソールポインタを作らない）。
  * CLI は地上/ブリングアップ用ツールで、飛行クリティカル経路には載らない。
  *
- * @subscriber system_mode, sensor_power, sensor_health, pairing_state, pairing_complete
+ * @subscriber system_mode, sensor_power, sensor_health, pairing_state, pairing_complete,
+ *             pairing_diag
  * @publisher button_event (CLI `pair` injects a LongPress3s gesture fact)
  * @design architecture.md §6 — CLITask: CLI + Parameters              [OK]
  * @design architecture.md §3 — R6 CLI command registry pattern         [OK]
@@ -41,6 +42,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_system.h"
+#include "esp_mac.h"       // esp_read_mac(ESP_MAC_WIFI_SOFTAP) for `mac` / `mac` の SoftAP BSSID 読み
 #include "esp_console.h"
 #include "esp_timer.h"
 #include "nvs.h"       // wifi credentials (CLI writes, sf_comm reads at boot)
@@ -295,6 +297,46 @@ int cmd_version(int argc, char** argv)
     return 0;
 }
 
+/// `mac` — print this vehicle's own MAC and the 4-hex-digit label (bytes[4..5],
+/// upper case, no colon) for a physical label / for picking this vehicle on a
+/// controller's own-screen candidate list (pairing-methods-plan.md §4.1, §6
+/// item 5). Reads the pairing_diag topic (comm publishes it each update() cycle)
+/// instead of querying the radio directly — CLI never reaches into another
+/// component (R5).
+/// `mac` — この機体の MAC と、物理ラベル／コントローラの候補一覧選択で使う下4桁
+/// ラベル（bytes[4..5]、大文字、コロン無し）を表示する（pairing-methods-plan.md
+/// §4.1、§6の5）。無線を直接問い合わせず pairing_diag トピック（comm が update() 毎に
+/// 発行）を読む — CLI は他コンポーネントへ直接触れない（R5）。
+int cmd_mac(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
+    const sf::PairingDiag diag = sf::pairing_diag.latest();
+    std::printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                diag.own_mac[0], diag.own_mac[1], diag.own_mac[2],
+                diag.own_mac[3], diag.own_mac[4], diag.own_mac[5]);
+    std::printf("Label: %02X%02X\n", diag.own_mac[4], diag.own_mac[5]);
+
+    // The SoftAP SSID is built from the same STA MAC tail (Comm::startSoftAp), so
+    // label, controller list and SSID all show one identity -- print it for
+    // convenience.
+    // SoftAP の SSID も同じ STA 側 MAC 末尾から作る（Comm::startSoftAp）ので、
+    // ラベル・コントローラ一覧・SSID は同じ識別子になる。参考として併記する。
+    std::printf("SoftAP SSID: StampFly-%02X%02X\n", diag.own_mac[4], diag.own_mac[5]);
+
+    // The SoftAP interface's own MAC (the BSSID a Wi-Fi scanner shows) is
+    // STA MAC + 1 by ESP32 rule (two interfaces cannot share a MAC); print it
+    // with the relation so the +1 never surprises anyone.
+    // SoftAP インターフェース自身の MAC（Wi-Fi スキャンで見える BSSID）は ESP32 の
+    // 仕様で STA MAC + 1（2 つのインターフェースは同じ MAC を持てない）。関係式を
+    // 添えて表示し、+1 で戸惑わないようにする。
+    uint8_t ap_mac[6] = {};
+    esp_read_mac(ap_mac, ESP_MAC_WIFI_SOFTAP);
+    std::printf("SoftAP BSSID: %02X:%02X:%02X:%02X:%02X:%02X (= MAC + 1, ESP32 rule)\n",
+                ap_mac[0], ap_mac[1], ap_mac[2], ap_mac[3], ap_mac[4], ap_mac[5]);
+    return 0;
+}
+
 /// `unpair` — clear the stored controller pairing and re-enter Pairing so a (new)
 /// transmitter can bind. Publishes a LongPress3s button gesture FACT — the same path
 /// as a 3 s button hold — so the StateManager decides (no cross-task coupling).
@@ -309,30 +351,39 @@ int cmd_unpair(int argc, char** argv)
     ev.gesture   = static_cast<uint8_t>(sf::ButtonGesture::LongPress3s);
     ev.timestamp = static_cast<uint32_t>(esp_timer_get_time());
     sf::button_event.publish(ev);
-    std::printf("unpair requested — clearing bind, re-entering pairing (on the ground)\n");
+    std::printf("unpair requested — clearing bind, re-entering pairing "
+                "(ground or held in hand)\n");
     return 0;
 }
 
 /// `pair` — pairing control. `pair` / `pair start` re-enters Pairing (discards the
 /// current bind and searches for a transmitter, like a 3 s button long-press);
-/// `pair status` prints the PairingState and the bound transmitter MAC. The start
-/// path publishes a button_event FACT (LongPress3s) so the StateManager — the sole
-/// authority — decides, exactly as for the physical button (no cross-task coupling).
+/// `pair status` prints own MAC/label, the PairingState, the bound transmitter MAC
+/// (if any), and the own-address filter's rejected-packet counter (pairing-
+/// methods-plan.md §4.1). The start path publishes a button_event FACT
+/// (LongPress3s) so the StateManager — the sole authority — decides, exactly as
+/// for the physical button (no cross-task coupling).
 /// `pair` — ペアリング操作。`pair`/`pair start` は Pairing に再突入（現在のバインドを破棄し
-/// 送信機を探索、ボタン長押し3秒と同じ）、`pair status` は PairingState とバインド済み送信機
-/// MAC を表示。start は button_event の事実（LongPress3s）を発行し、唯一の権限者である
-/// StateManager が判断する（物理ボタンと同一経路、タスク間結合なし）。
+/// 送信機を探索、ボタン長押し3秒と同じ）、`pair status` は自 MAC/ラベル・PairingState・
+/// バインド済み送信機 MAC（あれば）・自分宛フィルタの棄却カウンタ（pairing-methods-
+/// plan.md §4.1）を表示。start は button_event の事実（LongPress3s）を発行し、唯一の
+/// 権限者である StateManager が判断する（物理ボタンと同一経路、タスク間結合なし）。
 int cmd_pair(int argc, char** argv)
 {
     if (argc >= 2 && std::strcmp(argv[1], "status") == 0) {
         const sf::PairingStatus ps = sf::pairing_state.latest();
         const sf::PairingComplete bind = sf::pairing_complete.latest();
+        const sf::PairingDiag diag = sf::pairing_diag.latest();
         const char* name = "NotPaired";
         switch (static_cast<sf::PairingState>(ps.state)) {
             case sf::PairingState::Pairing: name = "Pairing"; break;
             case sf::PairingState::Paired:  name = "Paired";  break;
             default:                        break;
         }
+        std::printf("own mac : %02X:%02X:%02X:%02X:%02X:%02X (label %02X%02X)\n",
+                    diag.own_mac[0], diag.own_mac[1], diag.own_mac[2],
+                    diag.own_mac[3], diag.own_mac[4], diag.own_mac[5],
+                    diag.own_mac[4], diag.own_mac[5]);
         std::printf("pairing : %s\n", name);
         if (bind.bound) {
             std::printf("bound   : %02X:%02X:%02X:%02X:%02X:%02X%s\n",
@@ -343,18 +394,29 @@ int cmd_pair(int argc, char** argv)
         } else {
             std::printf("bound   : none\n");
         }
+        // Own-address filter diagnostic (pairing-methods-plan.md §4.1): how many
+        // ControlPackets were rejected during Pairing because they addressed a
+        // different vehicle (a neighbour's controller in a crowded room).
+        // 自分宛フィルタの診断値（pairing-methods-plan.md §4.1）: Pairing 中に
+        // 別の機体宛だったため棄却した ControlPacket の件数（混雑した会場の隣の
+        // コントローラ等）。
+        std::printf("rejected: %lu (packets addressed to a different vehicle)\n",
+                    static_cast<unsigned long>(diag.rejected_count));
         return 0;
     }
     if (argc < 2 || std::strcmp(argv[1], "start") == 0) {
         // Inject a LongPress3s gesture fact; the StateManager re-enters Pairing
-        // (it gates this to the ground / disarmed and clears the existing bind).
+        // (it gates this to IDLE_GROUND/IDLE_HELD — ground or held in hand,
+        // disarmed — and clears the existing bind).
         // LongPress3s ジェスチャの事実を注入。StateManager が Pairing に再突入する
-        // （地上/disarmed に限定し既存バインドを破棄する）。
+        // （IDLE_GROUND/IDLE_HELD — 地上または手持ち、disarmed — に限定し既存バインドを
+        // 破棄する）。
         sf::ButtonEvent ev{};
         ev.gesture   = static_cast<uint8_t>(sf::ButtonGesture::LongPress3s);
         ev.timestamp = static_cast<uint32_t>(esp_timer_get_time());
         sf::button_event.publish(ev);
-        std::printf("pairing requested (takes effect on the ground / disarmed)\n");
+        std::printf("pairing requested (takes effect on the ground or held in hand, "
+                    "disarmed)\n");
         return 0;
     }
     std::printf("usage: pair [start | status]\n");
@@ -1138,6 +1200,7 @@ const CliCommand kCommands[] = {
     {"status",  "Show flight state, pairing, attitude, battery, sensors", &cmd_status},
     {"sensor",  "sensor [imu|mag|baro|tof|flow|power|all] — print readings", &cmd_sensor},
     {"version", "Show firmware version / build date",            &cmd_version},
+    {"mac",     "Show this vehicle's MAC and 4-hex-digit label",  &cmd_mac},
     {"pair",    "pair [start|status] — (re-)enter pairing / show bind", &cmd_pair},
     {"unpair",  "Clear pairing and re-enter pairing mode",       &cmd_unpair},
     {"sound",   "sound [on|off|test [start|ok|fail]] — buzzer mute / play a cue", &cmd_sound},

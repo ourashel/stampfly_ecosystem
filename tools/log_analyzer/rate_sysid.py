@@ -78,7 +78,7 @@ if _TOOLS_DIR not in _sys.path:
     _sys.path.insert(0, _TOOLS_DIR)
 from sysid.plant_fit import (  # noqa: E402
     _duty_differential_vehicle, _classify_duty_source,
-    _DUTY_COLS, _DUTY_RATE_HZ_COL, _VBAT_COL, _V_BATT_NOMINAL, _V_BATT_MIN,
+    _V_BATT_NOMINAL, _V_BATT_MIN,
     _ARM_D, _MOTOR_AM, _MOTOR_BM, _MOTOR_CM, _MOTOR_CT,
 )
 
@@ -344,105 +344,6 @@ def loop_margins(b, T, L, kp, ti, td, eta=ETA):
     return out
 
 
-# =============================================================================
-# CSV front-end / CSV 入口
-# =============================================================================
-
-def load_csv(path, axis):
-    """Pull (t, r, y, duty_u, duty_quality, duty_reason) for one axis from a
-    Data Stream CSV (sf log convert).
-    Data Stream CSV から1軸分の (t, r, y, duty_u, duty_quality, duty_reason) を
-    取り出す。
-
-    duty_u is the differential TORQUE [Nm] recovered by inverting firmware/
-    vehicle's real mixer on the 400Hz motor_duty_FR/RR/RL/FL columns (see
-    module docstring) -- None if those columns aren't in the CSV. duty_quality
-    is 'duty400' (genuine 400Hz, safe to use as u directly), 'duty50' (an
-    older 50Hz-forward-filled staircase -- too coarse, caller must fall back
-    to replay_pid()), or None when duty_u is None (duty_reason explains why).
-    duty_u はfirmware/vehicle の実ミキサーを400Hzの motor_duty_FR/RR/RL/FL 列
-    から逆算した差動トルク[Nm]（モジュール docstring 参照）——CSV にその列が
-    無ければ None。duty_quality は 'duty400'（本物の400Hz、そのまま u として
-    使える）、'duty50'（旧い50Hz前方補完の階段状データ——粗すぎるので呼び出し
-    側は replay_pid() にフォールバックすること）、または duty_u が None の
-    ときの None（理由は duty_reason）。
-    """
-    import csv as _csv
-    col_r = f"rate_ref_{axis}"
-    col_y = {"roll": "gyro_x", "pitch": "gyro_y", "yaw": "gyro_z"}[axis]
-    t, r, y = [], [], []
-    duty_fr, duty_rr, duty_rl, duty_fl = [], [], [], []
-    duty_rate_hz, vbat = [], []
-    with open(path) as f:
-        reader = _csv.DictReader(f)
-        fieldnames = set(reader.fieldnames or [])
-        has_duty_cols = all(c in fieldnames for c in _DUTY_COLS)
-        has_duty_rate_hz = _DUTY_RATE_HZ_COL in fieldnames
-        has_vbat = _VBAT_COL in fieldnames
-        for row in reader:
-            try:
-                r.append(float(row[col_r]))
-                y.append(float(row[col_y]))
-            except (KeyError, ValueError):
-                continue
-            t.append(len(t) * DT)
-            if has_duty_cols:
-                try:
-                    duty_fr.append(float(row['motor_duty_FR']))
-                    duty_rr.append(float(row['motor_duty_RR']))
-                    duty_rl.append(float(row['motor_duty_RL']))
-                    duty_fl.append(float(row['motor_duty_FL']))
-                except (KeyError, ValueError):
-                    duty_fr.append(0.0); duty_rr.append(0.0)
-                    duty_rl.append(0.0); duty_fl.append(0.0)
-            if has_duty_rate_hz:
-                try:
-                    duty_rate_hz.append(float(row[_DUTY_RATE_HZ_COL]))
-                except (KeyError, ValueError):
-                    duty_rate_hz.append(0.0)
-            if has_vbat:
-                try:
-                    vbat.append(float(row[_VBAT_COL]))
-                except (KeyError, ValueError):
-                    vbat.append(0.0)
-    if len(r) < 1024:
-        raise ValueError(f"too few samples ({len(r)}) — capture with the "
-                         "excitation running (sf log wifi + api sysid)")
-
-    duty_u = duty_quality = None
-    duty_reason = "no motor_duty_FR/RR/RL/FL columns in CSV"
-    if has_duty_cols:
-        duty_fr = np.array(duty_fr); duty_rr = np.array(duty_rr)
-        duty_rl = np.array(duty_rl); duty_fl = np.array(duty_fl)
-        duty_rate_hz_arr = np.array(duty_rate_hz) if has_duty_rate_hz else None
-        duty_quality, duty_reason = _classify_duty_source(
-            duty_fr, duty_rr, duty_rl, duty_fl, duty_rate_hz_arr)
-
-        # vbat forward-filled from the 1Hz PKT_STATUS entry (udp_capture.py
-        # save_stream_csv()); nominal 1S LiPo fallback when absent/implausible,
-        # same policy as sysid.plant_fit._load_axis_data()'s --mixer vehicle path.
-        # vbat は1Hz PKT_STATUS からの前方補完（udp_capture.py 参照）。無い/
-        # 非現実的な場合は公称1S LiPo電圧にフォールバック
-        # （sysid.plant_fit._load_axis_data() の --mixer vehicle 経路と同じ方針）。
-        vbat_note = ''
-        if has_vbat:
-            vbat_arr = np.array(vbat)
-            bad = vbat_arr < _V_BATT_MIN
-            if np.any(bad):
-                vbat_arr = np.where(bad, _V_BATT_NOMINAL, vbat_arr)
-                vbat_note = (f" ({int(np.sum(bad))}/{len(vbat_arr)} rows had no/"
-                             f"implausible vbat -- used the nominal {_V_BATT_NOMINAL}V there)")
-        else:
-            vbat_arr = np.full(len(duty_fr), _V_BATT_NOMINAL)
-            vbat_note = (f" (no vbat column in CSV -- used the nominal "
-                         f"{_V_BATT_NOMINAL}V throughout; re-capture with a current "
-                         "udp_capture.py for the real battery-sag-corrected fit)")
-        duty_reason += vbat_note
-        duty_u = _duty_differential_vehicle(duty_fr, duty_rr, duty_rl, duty_fl, vbat_arr, axis)
-
-    return np.array(t), np.array(r), np.array(y), duty_u, duty_quality, duty_reason
-
-
 def plot_fit(omega, G_hat, coh, b, T, L, axis, path):
     """Bode (measured ETFE vs fitted model) + coherence, saved to `path` (PNG).
     Bode（実測 ETFE vs フィット）＋コヒーレンスを path に保存。コヒーレンスが低い帯域＝外乱支配で
@@ -469,23 +370,20 @@ def plot_fit(omega, G_hat, coh, b, T, L, axis, path):
     fig.tight_layout(); fig.savefig(path, dpi=110); plt.close(fig)
 
 
-def fit_from_csv(path, axis, gains=None, f_lo=0.8, f_hi=30.0, plot_path=None,
-                  input_mode='auto'):
-    """Full pipeline: CSV → recover u → ETFE → parametric (b, T, L).
-    全手順: CSV → u 復元 → ETFE → (b,T,L)。plot_path 指定で Bode＋コヒーレンス図を保存。
-
-    Args:
-        input_mode: 'auto' (default) -- prefer the 400Hz motor-duty
-            reconstruction (exact, no firmware-gain assumption) and fall back
-            to the legacy PID-replay reconstruction only when the CSV has no
-            genuine 400Hz duty (older firmware/capture). 'duty' forces the
-            duty path (error if unavailable). 'kp' forces the legacy replay
-            path (error path is unchanged from before this input existed).
-        input_mode: 'auto'（既定）—— 400Hzモータduty復元（厳密、ファーム
-            ゲインの仮定不要）を優先し、本物の400Hz duty が無いログ（旧ファー
-            ム/旧キャプチャ）のときだけ従来のPID再生経路にフォールバックする。
-            'duty' は duty 経路を強制（使えなければエラー）。'kp' は従来の
-            再生経路を強制（本入力追加前と同じ挙動）。
+def _fit_core(r, y, duty_u, duty_quality, duty_reason, axis, gains, f_lo, f_hi,
+              plot_path, input_mode):
+    """Shared tail of the pipeline, from "recover u" onward: input-mode
+    resolution -> ETFE -> parametric (b, T, L) -> optional plot. fit_from_df()
+    (both the SILS `sysid-gate` and real-vehicle flight-log-bundle callers --
+    both now go through the SAME StampFly flight-log v1 bundle, see the
+    module docstring) builds (r, y, duty_u, duty_quality, duty_reason) its own
+    way, then calls this ONE function.
+    パイプラインの後半（「u を復元」以降）の共有部分: 入力モード解決 -> ETFE ->
+    パラメトリックフィット (b,T,L) -> 任意のプロット。fit_from_df()（SILS の
+    `sysid-gate` と実機フライトログ一式の両方の呼び出し元 -- 今はどちらも同じ
+    StampFly フライトログ v1 一式を経由する。モジュール docstring 参照）が
+    (r, y, duty_u, duty_quality, duty_reason) を組み立てた後、この1つの関数を
+    呼ぶ。
     """
     if input_mode not in ('auto', 'duty', 'kp'):
         raise ValueError(f"Unknown input_mode: {input_mode!r}. Choose from: auto, duty, kp")
@@ -493,7 +391,6 @@ def fit_from_csv(path, axis, gains=None, f_lo=0.8, f_hi=30.0, plot_path=None,
     g = dict(DEFAULT_GAINS[axis])
     if gains:
         g.update(gains)
-    _t, r, y, duty_u, duty_quality, duty_reason = load_csv(path, axis)
 
     resolved_mode = input_mode
     if resolved_mode == 'auto':
@@ -502,14 +399,14 @@ def fit_from_csv(path, axis, gains=None, f_lo=0.8, f_hi=30.0, plot_path=None,
     if resolved_mode == 'duty':
         if duty_u is None:
             raise ValueError(
-                "--input duty requested but this CSV has no motor_duty_FR/RR/"
-                f"RL/FL columns ({duty_reason}). Capture with firmware "
-                "sending the 400Hz duty entry (kPktDuty400), or pass --input kp.")
+                "--input duty requested but this log has no genuine motor-duty "
+                f"data ({duty_reason}). Capture with firmware sending the 400Hz "
+                "duty entry (kPktDuty400), or pass --input kp.")
         if duty_quality != 'duty400':
             raise ValueError(
-                f"--input duty requested but this log's motor_duty_* is not "
-                f"genuine 400Hz data ({duty_reason}). Pass --input kp instead "
-                "(needs --kp/--ti/--td for the firmware gains that flew).")
+                f"--input duty requested but this log's duty is not genuine "
+                f"400Hz data ({duty_reason}). Pass --input kp instead (needs "
+                "--kp/--ti/--td for the firmware gains that flew).")
         u = duty_u
     else:
         u = replay_pid(r, y, g["kp"], g["ti"], g["td"], g["limit"])
@@ -525,6 +422,191 @@ def fit_from_csv(path, axis, gains=None, f_lo=0.8, f_hi=30.0, plot_path=None,
         plot_fit(omega, G_hat, coh, result["b"], result["T"], result["L"], axis, plot_path)
         result["plot_path"] = str(plot_path)
     return result
+
+
+def _valid_span(df, cols):
+    """Slice `df` to the contiguous rows between the first and last row where
+    every column in `cols` is present (not NaN). Returns (sliced_df,
+    gap_rows) where gap_rows counts rows INSIDE that span still missing a
+    value -- the caller decides whether a gap is acceptable.
+    `cols` の全列が揃う（NaN でない）最初と最後の行の間の連続区間へ `df` を
+    切り出す。(切り出した df, gap_rows) を返し、gap_rows は区間内部でなお値の
+    無い行数 -- 穴を許すかどうかは呼び出し側が決める。
+    """
+    present = df[list(cols)].notna().all(axis=1).to_numpy()
+    idx = np.flatnonzero(present)
+    if idx.size == 0:
+        raise ValueError(f"no row has all of {tuple(cols)} -- the bundle holds no "
+                         "excitation data for this axis")
+    first, last = int(idx[0]), int(idx[-1])
+    gap_rows = int((~present[first:last + 1]).sum())
+    return df.iloc[first:last + 1].reset_index(drop=True), gap_rows
+
+
+def fit_from_df(df, axis, gains=None, f_lo=0.8, f_hi=30.0, plot_path=None,
+                 input_mode='auto'):
+    """Full pipeline on an aligned flight-log-bundle DataFrame: df -> recover
+    u -> ETFE -> parametric (b, T, L). This is the entry point `sf sysid
+    rate-fit` uses for a real vehicle flight-log bundle, AND the entry point
+    the SILS `sysid-gate` uses on a SILS-recorded bundle (both go through the
+    SAME StampFly flight-log v1 bundle format now -- see
+    docs/plans/flight-log-format-plan.md section 3.3).
+    整列済みフライトログ一式 DataFrame での全手順: df -> u 復元 -> ETFE ->
+    (b,T,L)。実機フライトログ一式に対して `sf sysid rate-fit` が使う入口で
+    あり、かつ SILS `sysid-gate` が SILS 記録の一式に対して使う入口でもある
+    （どちらも今は同じ StampFly フライトログ v1 一式形式を経由する --
+    flight-log-format-plan.md 3.3節参照）。
+
+    Args:
+        df: the aligned DataFrame from tools/sysid/loader.load_aligned()
+            (base="imu", method="hold") -- must contain 'rate_ref_<axis>' and
+            'gyro_x'/'gyro_y'/'gyro_z', and OPTIONALLY 'duty_FR'/'duty_RR'/
+            'duty_RL'/'duty_FL' (genuine 400Hz duty when the bundle's `motor`
+            stream is present, else the ctrl_ref stream's 50Hz-held values --
+            distinguished via df.attrs["bundle_streams"], NOT by column
+            presence alone) and 'voltage' (battery voltage, from the bundle's
+            `status` stream, held/forward-filled onto every row). See
+            tools/sysid/loader.py and
+            docs/plans/flight-log-format-plan.md section 2.2/3.2 for the full
+            column contract -- this is the SAME DataFrame contract
+            tools/sysid/plant_fit.py's fit_plant() uses.
+        input_mode: 'auto' (default) -- prefer the 400Hz motor-duty
+            reconstruction (exact, no firmware-gain assumption) and fall back
+            to the legacy PID-replay reconstruction only when the bundle has
+            no genuine 400Hz duty (older firmware/capture). 'duty' forces the
+            duty path (error if unavailable). 'kp' forces the legacy replay
+            path.
+        df: tools/sysid/loader.load_aligned()（base="imu", method="hold"）が
+            返す整列済み DataFrame -- 'rate_ref_<axis>' と
+            'gyro_x'/'gyro_y'/'gyro_z' が必須、'duty_FR'/'duty_RR'/'duty_RL'/
+            'duty_FL'（一式の `motor` ストリームがあれば本物の400Hz duty、
+            無ければ ctrl_ref ストリームの50Hz保持値 -- 列の有無ではなく
+            df.attrs["bundle_streams"] で判別する）と 'voltage'（バッテリ
+            電圧、一式の `status` ストリーム由来、全行へ前方保持）は任意。
+            列の全契約は tools/sysid/loader.py と
+            docs/plans/flight-log-format-plan.md 2.2/3.2節を参照 --
+            tools/sysid/plant_fit.py の fit_plant() と同じ DataFrame 契約。
+        input_mode: 'auto'（既定）—— 400Hzモータduty復元（厳密、ファーム
+            ゲインの仮定不要）を優先し、本物の400Hz duty が無い一式（旧ファー
+            ム/旧キャプチャ）のときだけ従来のPID再生経路にフォールバックする。
+            'duty' は duty 経路を強制（使えなければエラー）。'kp' は従来の
+            再生経路を強制。
+    """
+    col_r = f"rate_ref_{axis}"
+    col_y = {"roll": "gyro_x", "pitch": "gyro_y", "yaw": "gyro_z"}[axis]
+    if col_r not in df.columns or col_y not in df.columns:
+        raise ValueError(
+            f"bundle DataFrame has no '{col_r}'/'{col_y}' column -- need a "
+            "flight-log bundle with the rate_ref and imu streams "
+            "(docs/plans/flight-log-format-plan.md section 2.2)")
+    # The lockstep streams behind rate_ref/duty exist only while the control
+    # loop actually ran (SILS: the armed window; the vehicle's Data Stream
+    # publishes them every cycle), while imu.csv runs from boot -- so the
+    # aligned table is NaN before/after that span. Fit the contiguous span
+    # between the first and last row that has both signals; an interior gap
+    # would mean lost packets, and those rows are refused rather than filled
+    # (the format's no-filled-values rule, plan section 2.1).
+    # rate_ref/duty の背後にあるロックステップ系ストリームは制御ループが実際に
+    # 回った区間（SILS: ARM 中。実機の Data Stream は毎周期発行）にしか無く、
+    # imu.csv は起動時から続くため、整列表はその区間の前後で NaN になる。両信号が
+    # 揃う最初と最後の行の間の連続区間を同定に使う。区間内部の穴はパケット欠落を
+    # 意味し、埋めずに拒否する（形式の「埋め値なし」規則、計画書 2.1 節）。
+    df, gap_rows = _valid_span(df, (col_r, col_y))
+    if gap_rows:
+        raise ValueError(
+            f"{gap_rows} rows inside the excitation span have no {col_r}/{col_y} "
+            "(lost packets) -- refusing to fill them; trim with --time-range or recapture")
+
+    r = df[col_r].to_numpy(dtype=float)
+    y = df[col_y].to_numpy(dtype=float)
+    if len(r) < 1024:
+        raise ValueError(f"too few samples ({len(r)}) — capture with the "
+                          "excitation running (sf log wifi + api sysid)")
+
+    # Real per-row timestamps are available (unlike an exact-400Hz-spacing
+    # assumption via `len(t) * DT`) but this function's own math
+    # (etfe()/fit_plant()/loop_margins()) all key off the MODULE-level FS/DT
+    # constants (Welch windowing, PID replay's dt, etc.), so we don't
+    # build/return a separate high-fidelity time vector here -- there is no
+    # `t` in this function's return value at all. If per-row timing ever
+    # matters here, derive it the same way tools/sysid/plant_fit.py's
+    # _load_axis_data() does: (df['timestamp_us'] - df['timestamp_us'].iloc[0]) / 1e6.
+    # 本物の行ごとのタイムスタンプは使えるが、この関数自身の計算
+    # （etfe()/fit_plant()/loop_margins()）は全てモジュールレベルの FS/DT
+    # 定数に基づく（Welch窓・PID再生の dt 等）ため、ここで別途高精度の時刻配列は
+    # 作らない・返さない。行ごとの時刻が必要になったら、tools/sysid/plant_fit.py の
+    # _load_axis_data() と同じ要領で導出する:
+    # (df['timestamp_us'] - df['timestamp_us'].iloc[0]) / 1e6。
+
+    duty_u = duty_quality = None
+    duty_reason = "no motor/ctrl_ref duty_FR/RR/RL/FL columns in bundle DataFrame"
+    duty_cols = ('duty_FR', 'duty_RR', 'duty_RL', 'duty_FL')
+    duty_gap_rows = int(df[list(duty_cols)].isna().any(axis=1).sum()) \
+        if all(c in df.columns for c in duty_cols) else 0
+    if duty_gap_rows:
+        # motor.csv rows come in their own packets (Duty400), so a lost one
+        # leaves a NaN row here even though rate_ref/gyro are complete. The
+        # FIR/mixer-inverse path cannot take gaps; report and let _fit_core()
+        # use the Kp/indirect path instead of filling.
+        # motor.csv の行は別パケット（Duty400）で届くため、欠落すると rate_ref/
+        # gyro が揃っていてもここに NaN 行が残る。FIR/ミキサー逆算の経路は穴を
+        # 扱えないので、埋めずに報告し _fit_core() に Kp/間接経路を使わせる。
+        duty_reason = (f"{duty_gap_rows} rows inside the excitation span have no "
+                       "duty_FR/RR/RL/FL (lost Duty400 packets) -- duty path unavailable")
+    elif all(c in df.columns for c in duty_cols):
+        duty_fr = df['duty_FR'].to_numpy(dtype=float)
+        duty_rr = df['duty_RR'].to_numpy(dtype=float)
+        duty_rl = df['duty_RL'].to_numpy(dtype=float)
+        duty_fl = df['duty_FL'].to_numpy(dtype=float)
+
+        # "motor" in bundle_streams is the EXACT (non-heuristic) signal for
+        # whether duty_FR/RR/RL/FL came from the bundle's motor.csv stream
+        # (genuine 400Hz kPktDuty400 entries) or, when motor.csv is absent,
+        # from ctrl_ref.csv's 50Hz-held values (aligned()'s column-collision
+        # rule keeps ctrl_ref's bare 'duty_FR' name only when motor.csv did
+        # NOT also supply one -- see lib/sflog/align.py). Synthesize a
+        # duty_rate_hz_col array from this boolean so the UNMODIFIED
+        # _classify_duty_source() (shared with tools/sysid/plant_fit.py, same
+        # trick used there) reaches the correct verdict via its existing
+        # hz >= 200.0 threshold, without needing a real CSV rate column.
+        # "motor" が bundle_streams に含まれるかは、duty_FR/RR/RL/FL が一式の
+        # motor.csv ストリーム（本物の400Hz kPktDuty400エントリ）由来か、
+        # motor.csv が無いときの ctrl_ref.csv の50Hz保持値由来かを判別する
+        # 厳密な（ヒューリスティックでない）シグナル（aligned() の列衝突改名
+        # 規則により、motor.csv が同じ列を供給しない場合のみ ctrl_ref の
+        # 素の 'duty_FR' が残る -- lib/sflog/align.py 参照）。この真偽値から
+        # duty_rate_hz_col 配列を合成することで、変更していない
+        # _classify_duty_source()（tools/sysid/plant_fit.py と共有、同じ
+        # 手法をあちらでも使用）が既存の hz >= 200.0 しきい値判定で正しい結果
+        # に達する -- 本物の CSV レート列は不要。
+        motor_present = "motor" in df.attrs.get("bundle_streams", set())
+        duty_rate_hz_arr = np.full(len(duty_fr), 400.0 if motor_present else 50.0)
+        duty_quality, duty_reason = _classify_duty_source(
+            duty_fr, duty_rr, duty_rl, duty_fl, duty_rate_hz_arr)
+
+        # vbat: bundle's `voltage` column (status stream, held/forward-filled)
+        # -- nominal-fallback when absent/implausible (see _V_BATT_NOMINAL).
+        # vbat: 一式の `voltage` 列（status ストリーム、前方保持）——
+        # 無い/非現実的な場合は公称値にフォールバック（_V_BATT_NOMINAL 参照）。
+        vbat_note = ''
+        if 'voltage' in df.columns:
+            vbat_arr = df['voltage'].to_numpy(dtype=float)
+            bad = vbat_arr < _V_BATT_MIN
+            if np.any(bad):
+                vbat_arr = np.where(bad, _V_BATT_NOMINAL, vbat_arr)
+                vbat_note = (f" ({int(np.sum(bad))}/{len(vbat_arr)} rows had no/"
+                             f"implausible voltage -- used the nominal {_V_BATT_NOMINAL}V there)")
+        else:
+            vbat_arr = np.full(len(duty_fr), _V_BATT_NOMINAL)
+            vbat_note = (f" (no voltage column in bundle -- used the nominal "
+                         f"{_V_BATT_NOMINAL}V throughout; capture with the "
+                         "bundle's status stream present for the real "
+                         "battery-sag-corrected fit)")
+        duty_reason += vbat_note
+        duty_u = _duty_differential_vehicle(duty_fr, duty_rr, duty_rl, duty_fl, vbat_arr, axis)
+
+    return _fit_core(r, y, duty_u, duty_quality, duty_reason, axis, gains,
+                      f_lo, f_hi, plot_path, input_mode)
 
 
 # =============================================================================
@@ -604,7 +686,7 @@ def selftest(verbose=True):
     # SAME true u[] (roll torque) through firmware/vehicle's real forward
     # mixer (B^-1 allocation, pitch=yaw=0, then thrustToDuty()) to synthesize
     # 4 motor duties, then invert with _duty_differential_vehicle() -- the
-    # function fit_from_csv(input_mode='duty'/'auto') uses -- and confirm it
+    # function fit_from_df(input_mode='duty'/'auto') uses -- and confirm it
     # recovers u AND fits the same known plant. Proves the duty path reaches
     # the same result as the PID-replay path above WITHOUT knowing the PID
     # gains. vbat_true is deliberately off V_BATT_NOMINAL so a bug that
@@ -613,7 +695,7 @@ def selftest(verbose=True):
     # duty経路の回帰（新しい・優先すべき経路）: 同じ真の u[]（ロールトルク）を
     # firmware/vehicle の実順方向ミキサー（B^-1配分、pitch=yaw=0、その後
     # thrustToDuty()）で4モータduty に変換し、_duty_differential_vehicle()
-    # （fit_from_csv(input_mode='duty'/'auto') が使う関数）で逆算してuと
+    # （fit_from_df(input_mode='duty'/'auto') が使う関数）で逆算してuと
     # 既知プラントの両方を復元できることを確認する。duty経路がPIDゲインを
     # 知らなくても上のPID再生経路と同じ結果に到達することの証明。vbat_true は
     # 意図的に V_BATT_NOMINAL からずらしてあり、実電圧を使わず黙ってノミナル
@@ -645,6 +727,32 @@ def selftest(verbose=True):
                abs(fit_d["L"] - L_true) < 0.004)
     ok = ok and ok_duty
 
+    # --- fit_from_df() regression: package the SAME synthetic flight as a
+    # minimal bundle DataFrame (reusing r/y/duty_fr../vbat_arr already built
+    # above) and confirm the DataFrame front-end (used by `sf sysid rate-fit`
+    # on a real vehicle flight-log bundle, AND by the SILS `sysid-gate` on a
+    # SILS-recorded bundle) reaches the same fit via input_mode='duty'.
+    # fit_from_df() の回帰確認: 同じ合成フライト（上で作った r/y/duty_fr../
+    # vbat_arr を再利用）を最小限の一式 DataFrame に詰め、DataFrame 側の入口
+    # （実機フライトログ一式に `sf sysid rate-fit` が使い、かつ SILS
+    # `sysid-gate` が SILS 記録の一式に使う）が input_mode='duty' で同じ
+    # フィットに到達することを確認する。
+    import pandas as _pd
+    df_selftest = _pd.DataFrame({
+        "timestamp_us": (t * 1e6).astype("int64"),
+        "rate_ref_roll": r,
+        "gyro_x": y,
+        "duty_FR": duty_fr, "duty_RR": duty_rr, "duty_RL": duty_rl, "duty_FL": duty_fl,
+        "voltage": vbat_arr,
+    })
+    df_selftest.attrs["bundle_streams"] = {"imu", "rate_ref", "motor", "status"}
+    fit_df = fit_from_df(df_selftest, "roll", input_mode='duty')
+    ok_df = (abs(fit_df["b"] / b_true - 1) < 0.15 and
+             abs(fit_df["T"] / T_true - 1) < 0.30 and
+             abs(fit_df["L"] - L_true) < 0.004 and
+             fit_df["input_mode"] == 'duty')
+    ok = ok and ok_df
+
     if verbose:
         print(f"replay max|u_rec-u| = {err_u:.2e} (exactness of the PID port)")
         print(f"fit : b={fit['b']:.0f} (true {b_true:.0f})  "
@@ -658,6 +766,10 @@ def selftest(verbose=True):
               f"fit b={fit_d['b']:.0f} T={fit_d['T'] * 1000:.1f}ms "
               f"L={fit_d['L'] * 1000:.2f}ms coh={fit_d['coherence_mean']:.2f}  "
               f"{'PASS' if ok_duty else 'FAIL'}")
+        print(f"fit_from_df (bundle DataFrame path): "
+              f"fit b={fit_df['b']:.0f} T={fit_df['T'] * 1000:.1f}ms "
+              f"L={fit_df['L'] * 1000:.2f}ms input_mode={fit_df['input_mode']}  "
+              f"{'PASS' if ok_df else 'FAIL'}")
         print("SELFTEST:", "PASS" if ok else "FAIL")
     return ok
 
