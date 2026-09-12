@@ -20,7 +20,7 @@
  * ドライバへ書き込む。
  *
  * @design architecture.md §5 — Actuator subsystem                       [OK]
- * @design detailed_design.md §5 — X-quad mixer                          [OK]
+ * @design detailed_design.md §10 — Actuation (Mixer) Interface Definition [OK]
  * @design coding_and_education.md §2 — Bilingual comments               [OK]
  */
 

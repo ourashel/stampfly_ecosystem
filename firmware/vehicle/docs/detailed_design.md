@@ -713,6 +713,130 @@ Controller / Estimator / HW のことは何も触らずに、自分のロジッ�
 
 実装が進んだ時点で本節を更新し、`@design` ステータスを `[OK]` に更新する。
 
+## 10. アクチュエーション（ミキサー）インターフェース定義
+
+`sf_actuator`（実装: `firmware/vehicle/components/sf_actuator/actuator.cpp`）が
+`control_output` トピック（`ControlOutput{thrust[N], torque[Nm]×3}`）を購読し、
+X-quad ミキサーで各モータの PWM duty を算出、`actuator_motor` トピックへ
+発行してからモータ HAL（`sf_hal_motor`）へ書き込む。責務は「アクチュエーション」
+（architecture.md 責務#7）。差し替え口 `sf::app::mixer()` は設計提案のみで
+未実装（architecture.md「ミキサー差し替え口」節）——**現状はこの唯一の
+実装を vehicle 既定 PID / `smc_rate` / `smc_rate_sta` / `smc_rate_asta`
+全アプリが無条件・無差別に共有する**。ミキサーへの変更は全アプリの実機
+飛行挙動に影響するため、architecture.md の INV（アーキテクチャ不変条件）
+節・特に INV-5 への照合が必須（CLAUDE.md「アーキテクチャ不変条件への
+照合を必須とする」ルール）。
+
+### モータ配置
+
+```
+               Front
+          FL (M4)   FR (M1)
+             ╲   ▲   ╱
+              ╲  │  ╱
+               ╲ │ ╱
+                ╲│╱
+                 ╳         ← Center
+                ╱│╲
+               ╱ │ ╲
+              ╱  │  ╲
+             ╱   │   ╲
+          RL (M3)    RR (M2)
+                Rear
+```
+
+| モータ | 位置 | GPIO (config.hpp/actuator.cpp) | 回転方向 |
+|--------|------|-------------------------------|----------|
+| M1 (FR) | 前右 (+x, +y) | GPIO 42 | CCW |
+| M2 (RR) | 後右 (-x, +y) | GPIO 41 | CW |
+| M3 (RL) | 後左 (-x, -y) | GPIO 10 | CCW |
+| M4 (FL) | 前左 (+x, -y) | GPIO 5 | CW |
+
+幾何定数は `docs/architecture/stampfly-parameters.md` §3「機体形状」を
+SSOTとする（`ARM_D=0.023m`＝モーメントアーム、`x/y=±0.023m`）。
+
+### 2段分離（INV-5）
+
+**INV-5**（architecture.md）: ミキサーへの入力は常に物理量（推力[N]・
+機体トルク[Nm]）とし、**幾何配分（B⁻¹、線形）**と**モータ曲線（duty変換、
+非線形・機体依存）**の2段に分離する。どちらの段も経験定数1個に押し込めて
+隠さない（旧 `firmware/vehicle_old` 以前の `k=0.25/3.7` はこの3つを
+1定数に丸め込んでいた——`docs/architecture/control-allocation-migration.md`
+§1「現状の違い」参照）。
+
+#### 段1: 幾何配分（B⁻¹、`mixerCompute()`）
+
+```cpp
+// T_i = 1/4( u_t  ±  u_φ/d  ±  u_θ/d  ±  u_ψ/κ )
+T[MOTOR_FR] = 0.25f * (ut - id*up + id*uq + ik*ur);
+T[MOTOR_RR] = 0.25f * (ut - id*up - id*uq - ik*ur);
+T[MOTOR_RL] = 0.25f * (ut + id*up - id*uq + ik*ur);
+T[MOTOR_FL] = 0.25f * (ut + id*up + id*uq - ik*ur);
+// id = 1/ARM_D, ik = 1/KAPPA
+```
+
+| 記号 | 意味 | 値 | 出典 |
+|------|------|-----|------|
+| `ut` | 総推力 [N] | `ControlOutput.thrust` | — |
+| `up, uq, ur` | roll/pitch/yaw トルク [Nm] | `ControlOutput.torque[0..2]` | — |
+| `ARM_D` (d) | モーメントアーム [m] | 0.023 | stampfly-parameters.md §2機体形状 |
+| `KAPPA` (κ) | トルク/推力比 = Cq/Ct [m] | 4.10×10⁻³ | stampfly-parameters.md §3（Cq=4.10e-11実測確定、Ct=1.00e-8暫定採用、詳細は同文書の改定履歴注記参照） |
+
+ヨーは `1/κ`（`·κ` ではない）——旧簡易ミキサーは `·κ` でヨーを
+約 `1/κ²` 過小駆動していたバグの修正（actuator.cpp コメント参照）。
+
+#### 段2: モータ曲線（`thrustToDuty()`）
+
+```cpp
+ω = sqrt(T / MOTOR_CT)
+V = MOTOR_AM·ω² + MOTOR_BM·ω + MOTOR_CM
+duty = V / Vbat   // 最終クランプは clampDuties()
+```
+
+| 記号 | 値 | 出典 |
+|------|-----|------|
+| `MOTOR_CT` (Ct) | 1.00×10⁻⁸ N/(rad/s)² | 暫定採用値（stampfly-parameters.md §3「推力・トルク特性」） |
+| `MOTOR_AM` | 6.0368×10⁻⁸ V/(rad/s)² | `flight_anchored_motor_curve`（同文書「回転数-電圧特性」、legacy値×1.12の畳み込み、2026-08-22） |
+| `MOTOR_BM` | 6.699042×10⁻⁴ V/(rad/s) | 同上（legacy値×√1.12） |
+| `MOTOR_CM` | 1.53×10⁻² V | 同上（legacy値と同一） |
+| `Vbat` | `sensor_power` の実電圧（フォールバック: 3.7V、下限2.5V未満は無効値扱い） | `batteryVoltage()` |
+
+Vbat にライブ電池電圧を使うのは、負荷で垂下する1S LiPoに実機で
+追従させるため必須（固定値だと過/不足駆動になる）。SILS はプラントの
+電池サグモデルで一致させる（Model Identity 原則）。
+
+### 飽和処理（既知の限界）
+
+`clampDuties()` は4モータそれぞれを独立に `[0,1]` へクランプする
+ナイーブな実装であり、1モータだけが飽和すると実際に加わる
+roll/pitch/yaw の合成比率が指令値から歪む。`pos_flight+motor-delay=15ms`
+のC2斜めステップ機動下で `smc_rate_asta` の `duty_max=0.9691` が
+既知のゲート未達として残存している（`docs/plans/smc-rate-loop-plan.md`
+§7.38、根本原因はロール+ピッチ差動トルクの1モータコーナーへの瞬間的な
+重なり）。§7.39で「余裕を考慮した比例デサチュレーション」（B⁻¹配分後・
+モータ曲線変換前に、総推力を固定したまま差動成分を一様縮小する方式）を
+試行したが、**duty_maxの改善はわずかで、tilt_maxに新規の退行を招いた
+ため差し戻し済み**（否定的結果として記録、現在の実装に変更なし）。
+この飽和は瞬間的（1制御周期程度）で直後に回復するため、実機投入の可否は
+このギャップを許容できるかをユーザーと個別に協議する。
+
+### テスト
+
+`simulator/tests/test_control_allocation_firmware_compat.py` が
+B⁻¹（`build_inverse_matrix_firmware()`）の代数的性質（`B×B⁻¹=I`、ホバー時
+の等配分、roll/yawトルクの往復整合）と `thrustToDuty()` の
+ファームウェア/シミュレータ間一致を検証する。これらは全て**非飽和領域**
+（`clampDuties()`が発火しない範囲）での検証であることに注意。
+
+### 関連文書
+
+| 文書 | 内容 |
+|------|------|
+| `docs/architecture/stampfly-parameters.md` §2-3 | 幾何・モータ定数の実測値とSSOT・改定履歴 |
+| `docs/architecture/control-allocation-migration.md` | B/B⁻¹導出の理論的背景（ただし数値例は移行計画当時のκ=9.71×10⁻³のまま——現在値はstampfly-parameters.md参照） |
+| `docs/plans/smc-rate-loop-plan.md` §7.37-7.39 | duty飽和・ミキサー改善試行の経緯と否定的結果 |
+| `firmware/vehicle/docs/architecture.md` INV-5・R17 | ミキサーの入出力契約・差し替え口設計提案 |
+
 ---
 
 <a id="english"></a>
@@ -816,3 +940,116 @@ storage,   data, spiffs,  0x310000, 0x200000,   # 2MB Blackbox
 ### Task Stack Summary
 
 Total task stacks: ~102KB out of 512KB RAM. Remaining ~410KB for Pub-Sub buffers, ESKF matrices, heap, etc.
+
+## 9. Actuation (Mixer) Interface Definition
+
+`sf_actuator` (implementation: `firmware/vehicle/components/sf_actuator/actuator.cpp`)
+subscribes to the `control_output` topic (`ControlOutput{thrust[N], torque[Nm]×3}`),
+computes each motor's PWM duty via the X-quad mixer, publishes to `actuator_motor`
+for telemetry, then writes to the motor HAL (`sf_hal_motor`). This is the
+"Actuation" responsibility (architecture.md responsibility #7). The `sf::app::mixer()`
+override hook is a design proposal only, not implemented (architecture.md's "mixer
+override hook" section) -- **currently this single implementation is shared
+unconditionally by vehicle's default PID, `smc_rate`, `smc_rate_sta`, and
+`smc_rate_asta`**. A change here affects every app's real-flight behavior, so it
+must be cross-checked against architecture.md's INV (architectural invariants)
+section -- especially INV-5 -- before committing (CLAUDE.md's mandatory INV
+cross-check rule).
+
+### Motor Layout
+
+| Motor | Position | GPIO (config.hpp/actuator.cpp) | Rotation |
+|-------|----------|--------------------------------|----------|
+| M1 (FR) | Front-Right (+x, +y) | GPIO 42 | CCW |
+| M2 (RR) | Rear-Right (-x, +y) | GPIO 41 | CW |
+| M3 (RL) | Rear-Left (-x, -y) | GPIO 10 | CCW |
+| M4 (FL) | Front-Left (+x, -y) | GPIO 5 | CW |
+
+Geometry constants are sourced from `docs/architecture/stampfly-parameters.md`
+§3 ("Vehicle Geometry") as SSOT (`ARM_D=0.023m` moment arm, `x/y=±0.023m`).
+
+### Two-Stage Separation (INV-5)
+
+**INV-5** (architecture.md): the mixer's inputs are always physical quantities
+(thrust [N], body torque [Nm]), separated into **geometric allocation (B⁻¹,
+linear)** and **motor curve (duty conversion, nonlinear/vehicle-specific)**.
+Neither stage is folded into a single empirical constant (the pre-`vehicle_old`
+`k=0.25/3.7` folded all three into one constant -- see
+`docs/architecture/control-allocation-migration.md` §1 "Current Differences").
+
+#### Stage 1: Geometric Allocation (B⁻¹, `mixerCompute()`)
+
+```cpp
+// T_i = 1/4( u_t  ±  u_phi/d  ±  u_theta/d  ±  u_psi/kappa )
+T[MOTOR_FR] = 0.25f * (ut - id*up + id*uq + ik*ur);
+T[MOTOR_RR] = 0.25f * (ut - id*up - id*uq - ik*ur);
+T[MOTOR_RL] = 0.25f * (ut + id*up - id*uq + ik*ur);
+T[MOTOR_FL] = 0.25f * (ut + id*up + id*uq - ik*ur);
+// id = 1/ARM_D, ik = 1/KAPPA
+```
+
+| Symbol | Meaning | Value | Source |
+|--------|---------|-------|--------|
+| `ut` | Total thrust [N] | `ControlOutput.thrust` | -- |
+| `up, uq, ur` | Roll/pitch/yaw torque [Nm] | `ControlOutput.torque[0..2]` | -- |
+| `ARM_D` (d) | Moment arm [m] | 0.023 | stampfly-parameters.md §2 Vehicle Geometry |
+| `KAPPA` (κ) | Torque/thrust ratio = Cq/Ct [m] | 4.10×10⁻³ | stampfly-parameters.md §3 (Cq=4.10e-11 measured/confirmed, Ct=1.00e-8 provisional; see that document's revision notes for the full history) |
+
+Yaw uses `1/κ` (NOT `·κ`) -- fixes an old bug where the simplified mixer
+under-drove yaw by ~`1/κ²` (see the actuator.cpp comment).
+
+#### Stage 2: Motor Curve (`thrustToDuty()`)
+
+```cpp
+omega = sqrt(T / MOTOR_CT)
+V = MOTOR_AM*omega^2 + MOTOR_BM*omega + MOTOR_CM
+duty = V / Vbat   // final clamp is clampDuties()
+```
+
+| Symbol | Value | Source |
+|--------|-------|--------|
+| `MOTOR_CT` (Ct) | 1.00×10⁻⁸ N/(rad/s)² | Provisional adoption (stampfly-parameters.md §3 "Thrust & Torque Characteristics") |
+| `MOTOR_AM` | 6.0368×10⁻⁸ V/(rad/s)² | `flight_anchored_motor_curve` (same doc, "Speed-Voltage Relationship" -- legacy value × 1.12 folded in, 2026-08-22) |
+| `MOTOR_BM` | 6.699042×10⁻⁴ V/(rad/s) | Same (legacy value × sqrt(1.12)) |
+| `MOTOR_CM` | 1.53×10⁻² V | Same (identical to legacy value) |
+| `Vbat` | Live voltage from `sensor_power` (fallback 3.7V; below 2.5V treated as invalid) | `batteryVoltage()` |
+
+Using live battery voltage for Vbat is required on real hardware so the
+thrust-to-duty stage tracks the 1S LiPo as it sags under load (a fixed
+assumption would under/over-drive the motors); SILS matches this via the
+plant's own battery-sag model (Model Identity principle).
+
+### Saturation Handling (Known Limitation)
+
+`clampDuties()` naively clamps each of the 4 motors to `[0,1]`
+independently, which distorts the applied roll/pitch/yaw ratio whenever
+exactly one motor saturates. A known gate failure remains on
+`smc_rate_asta`'s `duty_max=0.9691` under the `pos_flight+motor-delay=15ms`
+C2 diagonal-step maneuver (`docs/plans/smc-rate-loop-plan.md` §7.38; root
+cause is a momentary constructive overlap of roll+pitch differential torque
+on one motor corner). §7.39 trialed a headroom-aware proportional
+desaturation (uniformly shrinking the differential component after B⁻¹
+allocation and before the motor curve, holding total thrust fixed), but
+**it only marginally improved duty_max while regressing tilt_max, so it
+was reverted** (recorded as a negative result; the current implementation
+is unchanged). The saturation is momentary (roughly one control cycle)
+with a clean recovery afterward, so whether this residual gap is
+acceptable for real-hardware deployment is decided case-by-case with the
+user.
+
+### Testing
+
+`simulator/tests/test_control_allocation_firmware_compat.py` verifies the
+algebraic properties of B⁻¹ (`build_inverse_matrix_firmware()`: `B×B⁻¹=I`,
+equal hover allocation, roll/yaw torque round-trip) and firmware/simulator
+agreement for `thrustToDuty()`. Note these all check the **non-saturating**
+regime (where `clampDuties()` never engages).
+
+### Related Documents
+
+| Document | Content |
+|----------|---------|
+| `docs/architecture/stampfly-parameters.md` §2-3 | Measured geometry/motor constants, SSOT, revision history |
+| `docs/architecture/control-allocation-migration.md` | Theoretical background for the B/B⁻¹ derivation (numeric examples still use the migration-era κ=9.71×10⁻³ -- see stampfly-parameters.md for current values) |
+| `docs/plans/smc-rate-loop-plan.md` §7.37-7.39 | Duty saturation and mixer-improvement trial history, including negative results |
+| `firmware/vehicle/docs/architecture.md` INV-5, R17 | Mixer I/O contract and the (proposed) override hook |
