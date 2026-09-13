@@ -990,7 +990,7 @@ namespace param_vars {
     float smc_pos_asta_yaw_e_reset = 1.5f;
     float smc_pos_asta_yaw_z_leak_tau = 1.0f;
     float smc_pos_asta_velx_k1_init = 0.6f;
-    float smc_pos_asta_velx_k1_min = 0.15f;
+    float smc_pos_asta_velx_k1_min = 0.3f;   // tuned 2026-09-13 (was 0.15, see plan section 7.51)
     float smc_pos_asta_velx_k1_max = 1.5f;
     float smc_pos_asta_velx_k2_ratio = 0.5f;
     float smc_pos_asta_velx_adapt_rate = 0.2f;
@@ -1000,7 +1000,7 @@ namespace param_vars {
     float smc_pos_asta_velx_mref_tau = 0.03f;
     float smc_pos_asta_velx_mref_env_tau = 0.25f;
     float smc_pos_asta_velx_mref_env_base_tau = 0.6f;
-    float smc_pos_asta_velx_mref_trend_floor = 0.02f;
+    float smc_pos_asta_velx_mref_trend_floor = 0.3f;   // tuned 2026-09-13 (was 0.02, see plan section 7.51)
     float smc_pos_asta_velx_mref_shrink_ratio = 1.0f;
     float smc_pos_asta_velx_mref_dwell_time = 0.06f;
     float smc_pos_asta_velx_k1_slew_max = 10.0f;
@@ -1009,7 +1009,7 @@ namespace param_vars {
     float smc_pos_asta_velx_e_reset = 1.25f;
     float smc_pos_asta_velx_z_leak_tau = 0.5f;
     float smc_pos_asta_vely_k1_init = 0.6f;
-    float smc_pos_asta_vely_k1_min = 0.15f;
+    float smc_pos_asta_vely_k1_min = 0.3f;   // tuned 2026-09-13 (was 0.15, see plan section 7.51)
     float smc_pos_asta_vely_k1_max = 1.5f;
     float smc_pos_asta_vely_k2_ratio = 0.5f;
     float smc_pos_asta_vely_adapt_rate = 0.2f;
@@ -1019,7 +1019,7 @@ namespace param_vars {
     float smc_pos_asta_vely_mref_tau = 0.03f;
     float smc_pos_asta_vely_mref_env_tau = 0.25f;
     float smc_pos_asta_vely_mref_env_base_tau = 0.6f;
-    float smc_pos_asta_vely_mref_trend_floor = 0.02f;
+    float smc_pos_asta_vely_mref_trend_floor = 0.3f;   // tuned 2026-09-13 (was 0.02, see plan section 7.51)
     float smc_pos_asta_vely_mref_shrink_ratio = 1.0f;
     float smc_pos_asta_vely_mref_dwell_time = 0.06f;
     float smc_pos_asta_vely_k1_slew_max = 10.0f;
@@ -2018,7 +2018,7 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.yaw.e_reset", ParamType::FLOAT, &smc_pos_asta_yaw_e_reset, 1.5f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.yaw.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_yaw_z_leak_tau, 1.0f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.k1_init", ParamType::FLOAT, &smc_pos_asta_velx_k1_init, 0.6f, 0.0f, 1000.0f, &notifyControllerReload},
-    {"smc_pos_asta.velx.k1_min", ParamType::FLOAT, &smc_pos_asta_velx_k1_min, 0.15f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.k1_min", ParamType::FLOAT, &smc_pos_asta_velx_k1_min, 0.3f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.k1_max", ParamType::FLOAT, &smc_pos_asta_velx_k1_max, 1.5f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.k2_ratio", ParamType::FLOAT, &smc_pos_asta_velx_k2_ratio, 0.5f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.adapt_rate", ParamType::FLOAT, &smc_pos_asta_velx_adapt_rate, 0.2f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2028,7 +2028,7 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.velx.mref_tau", ParamType::FLOAT, &smc_pos_asta_velx_mref_tau, 0.03f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.mref_env_tau", ParamType::FLOAT, &smc_pos_asta_velx_mref_env_tau, 0.25f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.mref_env_base_tau", ParamType::FLOAT, &smc_pos_asta_velx_mref_env_base_tau, 0.6f, 0.0f, 3.0f, &notifyControllerReload},
-    {"smc_pos_asta.velx.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_velx_mref_trend_floor, 0.02f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_velx_mref_trend_floor, 0.3f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.mref_shrink_ratio", ParamType::FLOAT, &smc_pos_asta_velx_mref_shrink_ratio, 1.0f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.mref_dwell_time", ParamType::FLOAT, &smc_pos_asta_velx_mref_dwell_time, 0.06f, 0.0f, 1.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.k1_slew_max", ParamType::FLOAT, &smc_pos_asta_velx_k1_slew_max, 10.0f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2037,7 +2037,7 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.velx.e_reset", ParamType::FLOAT, &smc_pos_asta_velx_e_reset, 1.25f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_velx_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_init", ParamType::FLOAT, &smc_pos_asta_vely_k1_init, 0.6f, 0.0f, 1000.0f, &notifyControllerReload},
-    {"smc_pos_asta.vely.k1_min", ParamType::FLOAT, &smc_pos_asta_vely_k1_min, 0.15f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.k1_min", ParamType::FLOAT, &smc_pos_asta_vely_k1_min, 0.3f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_max", ParamType::FLOAT, &smc_pos_asta_vely_k1_max, 1.5f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k2_ratio", ParamType::FLOAT, &smc_pos_asta_vely_k2_ratio, 0.5f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.adapt_rate", ParamType::FLOAT, &smc_pos_asta_vely_adapt_rate, 0.2f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2047,7 +2047,7 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.vely.mref_tau", ParamType::FLOAT, &smc_pos_asta_vely_mref_tau, 0.03f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.mref_env_tau", ParamType::FLOAT, &smc_pos_asta_vely_mref_env_tau, 0.25f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.mref_env_base_tau", ParamType::FLOAT, &smc_pos_asta_vely_mref_env_base_tau, 0.6f, 0.0f, 3.0f, &notifyControllerReload},
-    {"smc_pos_asta.vely.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_vely_mref_trend_floor, 0.02f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_vely_mref_trend_floor, 0.3f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.mref_shrink_ratio", ParamType::FLOAT, &smc_pos_asta_vely_mref_shrink_ratio, 1.0f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.mref_dwell_time", ParamType::FLOAT, &smc_pos_asta_vely_mref_dwell_time, 0.06f, 0.0f, 1.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_slew_max", ParamType::FLOAT, &smc_pos_asta_vely_k1_slew_max, 10.0f, 0.0f, 1000.0f, &notifyControllerReload},
