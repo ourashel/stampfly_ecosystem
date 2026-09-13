@@ -1,0 +1,15 @@
+# modeswitch_rapid.expect — EXPLORATORY gate for the rapid mode-toggle stress
+# test (docs/plans/smc-rate-loop-plan.md 2026-09-13 session, in response to
+# section 7.28's real-hardware crash). Generous sanity bounds only (no
+# tumble/crash/impact) -- not a tightly-calibrated regression threshold set.
+# 探索的ゲート（docs/plans/smc-rate-loop-plan.md 2026-09-13セッション、
+# §7.28の実機クラッシュを受けて作成）。緩やかな健全性境界のみ
+# （転倒/墜落/衝撃なし）——精密に較正された回帰閾値集合ではない。
+exit 0
+log_contains any "ARM accepted"
+log_contains any "Takeoff complete"
+log_contains any "DISARM accepted"
+metric tilt_max < 0.6109 in 8.0 20.5   # 35 deg -- generous, well short of tumble
+metric alt_min > 0.2 in 8.0 15.5       # window ends before the scripted disarm/landing sequence begins
+metric alt_max < 3.0 in 8.0 20.5
+metric duty_max < 1.001 in 8.0 20.5

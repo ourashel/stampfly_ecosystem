@@ -1,0 +1,79 @@
+# modeswitch_rapid.scn — RAPID repeated ALT_HOLD<->POS_HOLD toggling stress
+# test (exploratory, 2026-09-13). 高速連続ALT_HOLD⇔POS_HOLDトグルのストレス
+# テスト（探索的、2026-09-13）
+#
+# Motivation: docs/plans/smc-rate-loop-plan.md section 7.28 found smc_pos_sta
+# crashed on real hardware (tumble, battery ejected) right after a mode
+# transition during a session where the pilot was rapidly flicking the
+# POS_HOLD switch (~35 times over 180s, intervals 20ms-0.6s) -- and section
+# 7.28 explicitly noted "no SILS scenario reproduces this condition; both
+# real-hardware incidents were the first exposure". This scenario fills that
+# gap: a sustained RAPID, PERIODIC ALT_HOLD<->POS_HOLD toggle (100ms each way,
+# ~6s / ~30 toggles) after establishing a real lateral drift (same roll-step
+# idea as modeswitch.scn), so the position cascade has real work to do at
+# every toggle, not a no-op on a centred-stick hover.
+#
+# 動機: docs/plans/smc-rate-loop-plan.md §7.28で、smc_pos_staが実機で
+# クラッシュ（転倒、バッテリー脱落）した直前、パイロットがPOS_HOLDスイッチを
+# 高速に連打していた（180秒で約35回、間隔20ms〜0.6秒）——§7.28は「この条件を
+# 再現するSILSシナリオが無く、両実機事故ともこの条件への初めての露出だった」
+# と明記していた。本シナリオはその空白を埋める: 実横ドリフトを作った上で
+# （modeswitch.scnと同じロールステップ）、持続的な高速・周期的ALT_HOLD⇔
+# POS_HOLDトグル（片道100ms、約6秒/約30回）を行い、位置カスケードが
+# 中央スティックのホバーでの無為な切替でなく、毎回実際に仕事をするように
+# する。
+#
+# EXPLORATORY: gates below are generous sanity bounds (no tumble/crash), not
+# tightly-derived regression thresholds -- this scenario has not yet been
+# calibrated against a known-good baseline the way modeswitch.scn was.
+# 探索的: 以下のゲートは緩やかな健全性境界（転倒/墜落なし）であり、
+# modeswitch.scnのような既知良好基準に対して精密に導出した回帰閾値では
+# ない——本シナリオはまだそのような較正を経ていない。
+#
+# Sticks: raw 12-bit ADC, centre 2048. Field order after arm/hold_ms/rate_hz:
+# alt, (unused), pos -- same convention as modeswitch.scn.
+# スティックはraw 12bit ADC（中央2048）。arm/hold_ms/rate_hz以降のフィールド
+# 順序: alt, (未使用), pos -- modeswitch.scnと同じ規約。
+#
+# Run: sf sils scenario simulator/sils/scenarios/modeswitch_rapid.scn --target apps/smc_pos_asta
+
+#  <t>  ch  <thr> <roll> <pitch> <yaw> <arm> <hold_ms> <rate_hz> [alt] [_] [pos]
+   0    rc   2048  2048   2048    2048  0     4000      50                       # A: disarmed 4 s
+   +    rc   2048  2048   2048    2048  1     1000      50                       # B: ARM, idle 1 s
+   +    rc   3243  2048   2048    2048  1     2000      50                       # C: STABILIZE take-off climb ~2 s (same raw value as modeswitch.scn -- corrected from an earlier authoring error that used 3473, a value from a comment in modeswitch.scn describing an unrelated recalibration, not that file's actual data line)
+   +    rc   2048  2048   2048    2048  1     2000      50        1              # D: ALT_HOLD engage + settle 2 s
+   +    rc   2048  2600   2048    2048  1     600       50        1              # D2: roll-right step (~+8 deg) 0.6 s -> lateral drift
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E01: -> POS_HOLD 100ms
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E02: -> ALT_HOLD 100ms
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E03
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E04
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E05
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E06
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E07
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E08
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E09
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E10
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E11
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E12
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E13
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E14
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E15
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E16
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E17
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E18
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E19
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E20
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E21
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E22
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E23
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E24
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E25
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E26
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E27
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E28
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     1  # E29
+   +    rc   2048  2048   2048    2048  1     100       50        1     0     0  # E30: back to ALT_HOLD, end of rapid-toggle phase
+   +    rc   2048  2048   2048    2048  1     3000      50        1              # F: ALT_HOLD settle 3 s
+   +      rc    2048 2048 2048 2048  0     200       50              # release ARM button
+   +      rc    2048 2048 2048 2048  1     200       50              # press again -> DISARM (toggle)
+   +      rc    2048 2048 2048 2048  0     600       50              # settle disarmed
