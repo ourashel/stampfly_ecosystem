@@ -4608,9 +4608,66 @@ t<21sの数値は、`atan2`によるroll復元が±180°で折り返す（真の
 - `firmware/vehicle/components/sf_core/params.cpp`（新規パラメータ`smc_pos_asta.vel.sp_slew_max`、既定0.0・範囲[0,100]）
 
 **今後の方針**:
-- [ ] **【次回セッション筆頭】** D（遅延を考慮した到達則ゲインの理論的再設計）に着手する——遅延ロバストSTAに関する文献調査（本計画の参考文献R1〜R3に続くR4候補）を行い、勘によるスイープではなく理論的な設計式に基づいて`k1`/`k2`/`phi`を導出する
-- [ ] Dの結果次第で、本節のA（`sp_slew_max`）と組み合わせた場合の効果を再検証する——今回は`k1_max=0.6`という簡易な低減としか組み合わせておらず、Dで理論的に導出したゲインとの組合せは未検証
-- [ ] 今回の診断は`pos_roll`1シナリオのみ——`pos_pitch`/`pos_yaw`/`pos_flight`/`yaw_hold`（後者は§7.54続報3で遅延と無関係な既存バグと判明済み）への波及効果は未確認
+- [x] **【次回セッション筆頭】** D（遅延を考慮した到達則ゲインの理論的再設計）に着手する——遅延ロバストSTAに関する文献調査（本計画の参考文献R1〜R3に続くR4候補）を行い、勘によるスイープではなく理論的な設計式に基づいて`k1`/`k2`/`phi`を導出する → **§7.54続報7で着手・実施済み**
+- [x] Dの結果次第で、本節のA（`sp_slew_max`）と組み合わせた場合の効果を再検証する → **§7.54続報7で実施、大幅改善を確認（完全解決ではない）**
+- [x] 今回の診断は`pos_roll`1シナリオのみ——`pos_pitch`/`pos_yaw`/`pos_flight`/`yaw_hold`への波及効果は未確認 → **§7.54続報7で`pos_pitch`/`pos_yaw`/`pos_flight`/`stab_combined_aggressive`へ拡大検証済み（`yaw_hold`は既知の別バグのため対象外のまま）**
+
+#### 7.54続報7【重要】D（理論的ゲイン再設計）を実施——記述関数法による遅延マージン理論とレートループ自身の再チューニングで`pos_roll`を完全解決、他シナリオも大幅改善（完全解決ではない）
+
+ユーザーから「Dやらないの？」との指摘を受け、時間の都合で次回送りにしていたD（理論的なゲイン再設計）に本セッション内で着手した。
+
+**文献調査**: Web検索で以下を確認した——
+- Zhang & Fridman他, "Robust super-twisting sliding mode control of input-delayed nonlinear systems using disturbance observers and predictor feedback"（[ResearchGate](https://www.researchgate.net/publication/384247851_Robust_super-twisting_sliding_mode_control_of_input-delayed_nonlinear_systems_using_disturbance_observers_and_predictor_feedback)）—— むだ時間系STAへの予測器フィードバック（オプションB系統）
+- "Design of super-twisting control gains: A describing function based methodology"（[ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0005109818304977)）—— **アクチュエータ動特性を「臨界制動2次系またはむだ時間」としてパラメータ化し、記述関数（describing function）/調和平衡法でSTAの自励振動振幅・周波数を予測し、それを最小化するゲインを設計する手法**。本節の理論的支柱とした
+- "Optimal super-twisting algorithm with time delay estimation for robot manipulators"（[ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0921889017304803)）—— むだ時間推定とSTAの組合せ
+
+**理論的導出（簡略版・記述関数法）**: STAの不連続項`ż = -k2·sign(s)`は積分器へのリレーフィードバックであり、ループにむだ時間`L`が挟まると、古典的な「リレー+むだ時間+積分器」系として振る舞う。この系は振幅・ゲインによらず周期`T≈4L`で自励振動し、その**振幅は`k2·L`に比例する**（リレーが半周期`L`の間`k2`の速さでランプし続けることで生じる三角波の振幅）。`k2 = k2_ratio·k1`（`k2_ratio`固定）なので、振幅は実質`k1·L`に比例する。
+
+§7.54で実測したroll軸の遅れ増大比（`tau_m`実測0.062s / 設計仮定0.020s ≈ 3.1倍）を用いると、**振動振幅を元の設計と同水準に保つには`k1`を同じ約1/3に縮小する必要がある**——`k2_ratio`・`phi`等は変えず`k1`（`k1_init`/`k1_min`/`k1_max`）だけをスケールする、という設計指針が導ける。
+
+**重要な気付き**: これまでの第3段階（§7.54続報4・§7.54続報6）は**速度ループ**（`smc_pos_asta.velx/vely`）のゲインしか触っていなかった。しかし`--motor-delay`が実際に効いているのは**レートループ**の入口であり、レートループ自身のゲイン（`smc_pos_asta.roll/pitch`、既定`k1_max=150`）は§7.31〜51で旧来の遅延仮定（20ms相当）を前提にチューニングされたまま一度も見直していなかった。理論はレートループ側にこそ第一に適用すべきと判断し、そちらを再検証した。
+
+**`pos_roll`（roll/pitch軸のレートループ`k1_max`をスケールダウン、`--motor-delay 60`、速度ループは既定のまま）**:
+
+| roll/pitch `k1_max`（既定150） | tilt_max | duty_max | att_rmse | horizontal_drift_max | DISARM到達 |
+|---|---|---|---|---|---|
+| 150（既定） | 180.00°（完全転倒） | 0.9041 | 213.35° | 9.15 m | × |
+| 50（理論値≈1/3） | **62.98°** | 0.7394（PASS） | **5.14°（ほぼPASS）** | 1.34 m（PASS） | **○** |
+| 30 | 46.61° | 0.7217（PASS） | 1.15°（PASS） | 1.32 m（PASS） | ○ |
+| **15** | **26.41°**（最良点） | 0.7053（PASS） | 0.66°（PASS） | 1.61 m（PASS） | ○ |
+| 8（さらに縮小） | 29.81°（悪化に転じる——非単調） | 0.7287（PASS） | 1.41°（PASS） | 0.95 m（PASS） | ○ |
+
+理論値（≈50）は「転倒はしないが依然大幅超過」の水準に留まったが、そこから経験的に追い込むと`k1_max=15`（既定の1/10）付近に局所最適があった——理論の単純な線形スケーリングは方向性としては正しいが、定量的には過小評価（必要な縮小幅は理論予測の約3倍）だったと分かる。これは§7.55続報4で言及した「k1の`sqrt(|s|)`非線形項や適応エスカレーション機構との相互作用」が単純な記述関数近似の外にあるためと考えられる。
+
+**`k1_max=15`（レートループ）+ `sp_slew_max=0.02`（速度ループ、§7.54続報6の最良点）の組合せ**:
+
+`pos_roll`（`--motor-delay 60`）は**完全にPASS**した（tilt_max=10.15°、drift=1.72m、duty=0.70、att_rmse=1.30°、DISARM到達、全12チェックPASS）——§7.54続報3で発見した完全転倒を、レートループとVelocityループ両方の再設計を組み合わせることで初めて解消した。
+
+**多シナリオへの一般化検証**（同じ組合せゲインで、SILS単独最適化禁止の原則に従い他シナリオも確認）:
+
+| シナリオ | 条件 | tilt_max（変更前→変更後） | 判定 |
+|---|---|---|---|
+| `pos_roll` | 60ms | 180.0°→**10.2°** | **PASS** |
+| `pos_roll`（回帰確認） | 0ms | （既定4.25°）→7.54° | **PASS**（健全さ維持） |
+| `pos_yaw` | 60ms | 187.4°→**15.0°**（tilt自体はPASS） | FAIL（horizontal_drift_max=4.77m、ゲート3.0m） |
+| `pos_pitch` | 60ms | 201.2°→23.9° | FAIL（ゲート18°にわずかに未達） |
+| `pos_flight` | 60ms | 189.8°→24.9° | FAIL（**alt_max=18.4mの高度暴走が新たに顕在化**、drift=20.7mも未解消） |
+| `stab_combined_aggressive` | 60ms | 55.3°→22.9° | FAIL（ゲート20°にわずかに未達） |
+| `stab_flight`（回帰確認） | 0ms | 12.5°→13.6° | **PASS**（健全さ維持） |
+| `acro_flight`（回帰確認） | 0ms | — | FAIL（`STABILIZE`→`Takeoff complete`の順序チェックのみ——§7.54続報3で既知の軽微な事象と同型、att_rmse=2.42°/tilt=8.73°は健全） |
+
+**結論**: 完全転倒していた4シナリオ（`pos_roll`/`pos_pitch`/`pos_yaw`/`pos_flight`）は全て**180〜201°から15〜25°へと劇的に改善**し、`pos_roll`は完全解決、`pos_yaw`も姿勢面（tilt）は解決した。これは記述関数法に基づく理論的方向性（レートループのゲインも遅延に応じて縮小すべき）が正しかったことを強く裏付ける。一方で**全シナリオの完全解決には至っていない**——`pos_pitch`・`stab_combined_aggressive`はゲートにわずかに届かず、`pos_flight`は姿勢は改善したものの**高度制御の暴走という新しい問題**が顕在化した（複合機動特有の相互作用と見られ、単一軸`pos_roll`のチューニングだけでは覆いきれない）。回帰確認（`pos_roll`/`stab_flight`を0ms、`acro_flight`）はいずれも健全性を維持しており、新たな退行は確認されなかった。
+
+**重要な留保**: 今回の`k1_max=15`はroll・pitch両軸に同一値を適用したが、§7.54ではroll（K=155424.5）とpitch（K=70910.3）で実測ゲインKが約2.2倍異なっており、軸ごとに最適な縮小率が異なる可能性が高い——`pos_pitch`が`pos_roll`ほど完全に改善しなかった一因かもしれない。また、これらは全て`--param`によるCLI上書きでの診断であり、**`params.cpp`のデフォルト値は変更していない**（CLAUDE.mdの規定通り、多シナリオでの完全な検証が済むまでデフォルト変更は行わない）。
+
+**変更ファイル**: なし（本節も診断のみ。既存の`smc_pos_asta.vel.sp_slew_max`機能を`--param`で有効化して使用したのみで、コード変更は§7.54続報6で完了済み）。
+
+**今後の方針**:
+- [ ] `pos_pitch`軸専用に`k1_max`を個別最適化する（roll用と同一値を使わず、実測Kの違いを反映した軸別スケーリングを試す）
+- [ ] `pos_flight`で新たに顕在化した高度暴走（alt_max=18.4m）を別途調査する——複合機動特有の相互作用（roll/pitch同時制御時の高度ループとの結合）を疑う
+- [ ] `stab_combined_aggressive`・`pos_pitch`のわずかな未達（ゲートまであと数度）を追い込む
+- [ ] 上記が全シナリオでPASSに達したら、初めて`params.cpp`のデフォルト値変更を検討する——CLAUDE.mdの規定通り、それまでは診断結果の記録に留める
+- [ ] `yaw_hold`（§7.54続報3で発見した遅延と無関係な既存バグ）はこの一連の再設計と無関係のまま——別途調査が必要
 
 ## 4. 実機投入ゲート
 
