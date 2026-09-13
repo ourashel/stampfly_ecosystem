@@ -50,18 +50,28 @@
 | [`firmware/vehicle/docs/architecture.md`](firmware/vehicle/docs/architecture.md) | アーキテクチャ不変条件（INV）・ミキサー差し替え口の設計提案 |
 | [`firmware/apps/smc_rate_asta/`](firmware/apps/smc_rate_asta/) | `smc_rate_asta`アプリのソース一式 |
 
-## 追記: §7.54 Smith予測器型むだ時間補償（参考文献）
+## 参考文献
 
-本README作成後の後続セッションで、`smc_pos_asta`（位置/速度ループも適応STA化した拡張版アプリ）を対象に、
-実機同定した実際のレートループ遅延（約60ms、設計時仮定の20msの約3倍）に対する安定余裕不足を、
-到達則ゲインの縮小ではなくSmith予測器型のむだ時間補償で解決した（[`docs/plans/smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md) §7.54〜§7.54続報13）。
-設計にあたり参照した文献:
+`docs/plans/smc-rate-loop-plan.md`の制御則設計全体（§2〜§7.54）が依拠した文献の一覧です
+（本README冒頭の§7.31-7.40のみでなく、同計画書全体で引用されている文献を収録）。
+ID（R1〜R11）は計画書内の引用番号と対応します。
 
-| 文献 | 本計画での使用箇所 |
-|---|---|
-| Zhang, Fridman et al., "Robust super-twisting sliding mode control of input-delayed nonlinear systems using disturbance observers and predictor feedback" ([ResearchGate](https://www.researchgate.net/publication/384247851_Robust_super-twisting_sliding_mode_control_of_input-delayed_nonlinear_systems_using_disturbance_observers_and_predictor_feedback)) | むだ時間系STAへの予測器フィードバックの一般的な枠組み |
-| "Design of super-twisting control gains: A describing function based methodology," Automatica ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0005109818304977)) | 記述関数法によるSTA自励振動の理論的分析——§7.54続報7の理論的支柱 |
-| "Optimal super-twisting algorithm with time delay estimation for robot manipulators based on feedback linearization," Mechatronics ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0921889017304803)) | むだ時間推定とSTAの組合せ |
+| ID | 文献 | 計画書での使用箇所 |
+|----|------|-------------------|
+| R1 | W. Gao and J. C. Hung, "Variable structure control of nonlinear systems: a new approach," *IEEE Transactions on Industrial Electronics*, vol. 40, no. 1, pp. 45–55, 1993. | §2.2 到達則（constant-plus-proportional rate reaching law）の根拠 |
+| R2 | J.-J. E. Slotine and W. Li, *Applied Nonlinear Control*, Prentice Hall, 1991. | 境界層（`sign()`→`sat()`置換）によるチャタリング抑制・超平面設計の教科書的典拠 |
+| R3 | V. Utkin and J. Shi, "Integral sliding mode in systems operating under uncertainty conditions," in *Proc. 35th IEEE Conference on Decision and Control (CDC)*, Kobe, Japan, 1996, pp. 4591–4596. | §3.4 積分項付加（PI型スライディング面）の着想元 |
+| R4 | O. J. M. Smith, "Closer control of loops with dead time," *Chemical Engineering Progress*, vol. 53, pp. 217–219, 1957. | §7.7 レートループへの無駄時間予測補償器（Smith予測器）の原典 |
+| R5 | A. Levant, "Sliding order and sliding accuracy in sliding mode control," *International Journal of Control*, vol. 58, no. 6, pp. 1247–1263, 1993. | §7.11 スーパーツイスティング法（STA）導入の根拠 |
+| R6 | J. A. Moreno and M. Osorio, "Strict Lyapunov functions for the super-twisting algorithm," *IEEE Transactions on Automatic Control*, vol. 57, no. 4, pp. 1035–1040, 2012. | STAの実用的ゲインチューニング条件 |
+| R7 | F. Plestan, Y. Shtessel, V. Bregeault, and A. Poznyak, "New methodologies for adaptive sliding mode control," *International Journal of Control*, vol. 83, no. 9, pp. 1907–1919, 2010. | §7.31 適応則（増加/減少の二値則）の根拠 |
+| R8 | Y. Shtessel, M. Taleb, and F. Plestan, "A novel adaptive-gain supertwisting sliding mode controller: Methodology and application," *Automatica*, vol. 48, no. 5, pp. 759–769, 2012. DOI: 10.1016/j.automatica.2012.02.024. | STA自身への適応ゲイン付与という設計思想の系譜 |
+| R9 | Y. Wang, W. Zhang, Y. Yang, C. Xue, S. Yuan, and H. Zhang, "Adaptive Second-Order Sliding Mode Control of Buck Converters with Multi-Disturbances," *Energies*, vol. 15, no. 14, p. 5139, 2022. DOI: 10.3390/en15145139. | §7.32 スライディング面ゼロクロス計数による適応ゲインの応用元 |
+| R10 | "New methodology for adaptive sliding mode control with self-tuning threshold based on chattering detection," *Mechanical Systems and Signal Processing*, 2025（著者名は検索で確認できず書誌情報のみ引用。DOI経由: [ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0888327025005552)）。 | 発振検出そのものに駆動される適応則という考え方の参考先 |
+| R11 | W. Barreto da Silveira, P. J. D. de Oliveira Evald, G. V. Hollweg, D. M. C. Milbradt, R. V. Tambara, and H. A. Gründling, "Robust Model Reference Adaptive Control With a Full Adaptive Super-Twisting Sliding Mode Action: Discrete-Time Stability Analysis and Application," *International Journal of Adaptive Control and Signal Processing*, Wiley, 2025. DOI: 10.1002/acs.4101. | §7.33 規範モデル方式への転換の設計根拠 |
+| — | Zhang, Fridman et al., "Robust super-twisting sliding mode control of input-delayed nonlinear systems using disturbance observers and predictor feedback." ([ResearchGate](https://www.researchgate.net/publication/384247851_Robust_super-twisting_sliding_mode_control_of_input-delayed_nonlinear_systems_using_disturbance_observers_and_predictor_feedback)) | §7.54続報7: むだ時間系STAへの予測器フィードバックの一般的な枠組み（`smc_pos_asta`のSmith予測器設計） |
+| — | "Design of super-twisting control gains: A describing function based methodology," *Automatica*. ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0005109818304977)) | §7.54続報7: 記述関数法によるSTA自励振動の理論的分析——同節の理論的支柱 |
+| — | "Optimal super-twisting algorithm with time delay estimation for robot manipulators based on feedback linearization," *Mechatronics*. ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0921889017304803)) | §7.54続報7: むだ時間推定とSTAの組合せ |
 
 ## 元プロジェクトについて
 
@@ -125,6 +135,29 @@ Following this verification, `smc_rate_asta` was flashed to a real StampFly for 
 | [`firmware/vehicle/docs/detailed_design.md`](firmware/vehicle/docs/detailed_design.md) §10/§9 | Detailed mixer (allocation + motor curve) specification |
 | [`firmware/vehicle/docs/architecture.md`](firmware/vehicle/docs/architecture.md) | Architectural invariants (INV) and the proposed mixer override hook |
 | [`firmware/apps/smc_rate_asta/`](firmware/apps/smc_rate_asta/) | `smc_rate_asta` app source |
+
+## References
+
+Every source cited across the full control-law design in `docs/plans/smc-rate-loop-plan.md`
+(§2 through §7.54), not only the §7.31-7.40 mixer work summarized above. IDs (R1-R11) match the
+plan document's own citation numbers.
+
+| ID | Reference | Used in the plan for |
+|----|-----------|-----------------------|
+| R1 | W. Gao and J. C. Hung, "Variable structure control of nonlinear systems: a new approach," *IEEE Transactions on Industrial Electronics*, vol. 40, no. 1, pp. 45–55, 1993. | §2.2 basis for the reaching law (constant-plus-proportional rate reaching law) |
+| R2 | J.-J. E. Slotine and W. Li, *Applied Nonlinear Control*, Prentice Hall, 1991. | Textbook basis for boundary-layer chattering suppression (`sign()`→`sat()`) and sliding-surface design |
+| R3 | V. Utkin and J. Shi, "Integral sliding mode in systems operating under uncertainty conditions," in *Proc. 35th IEEE Conference on Decision and Control (CDC)*, Kobe, Japan, 1996, pp. 4591–4596. | §3.4 origin of the proposed integral term (PI-type sliding surface) |
+| R4 | O. J. M. Smith, "Closer control of loops with dead time," *Chemical Engineering Progress*, vol. 53, pp. 217–219, 1957. | §7.7 original Smith predictor, basis for the rate-loop dead-time prediction compensator |
+| R5 | A. Levant, "Sliding order and sliding accuracy in sliding mode control," *International Journal of Control*, vol. 58, no. 6, pp. 1247–1263, 1993. | §7.11 basis for introducing the super-twisting algorithm (STA) |
+| R6 | J. A. Moreno and M. Osorio, "Strict Lyapunov functions for the super-twisting algorithm," *IEEE Transactions on Automatic Control*, vol. 57, no. 4, pp. 1035–1040, 2012. | Practical STA gain-tuning conditions |
+| R7 | F. Plestan, Y. Shtessel, V. Bregeault, and A. Poznyak, "New methodologies for adaptive sliding mode control," *International Journal of Control*, vol. 83, no. 9, pp. 1907–1919, 2010. | §7.31 basis for the adaptive law (binary increase/decrease rule) |
+| R8 | Y. Shtessel, M. Taleb, and F. Plestan, "A novel adaptive-gain supertwisting sliding mode controller: Methodology and application," *Automatica*, vol. 48, no. 5, pp. 759–769, 2012. DOI: 10.1016/j.automatica.2012.02.024. | Lineage for applying adaptive gain to the STA itself, avoiding gain overestimation |
+| R9 | Y. Wang, W. Zhang, Y. Yang, C. Xue, S. Yuan, and H. Zhang, "Adaptive Second-Order Sliding Mode Control of Buck Converters with Multi-Disturbances," *Energies*, vol. 15, no. 14, p. 5139, 2022. DOI: 10.3390/en15145139. | §7.32 source for adaptive gain driven by sliding-surface zero-crossing counting |
+| R10 | "New methodology for adaptive sliding mode control with self-tuning threshold based on chattering detection," *Mechanical Systems and Signal Processing*, 2025 (author list unconfirmed via search; bibliographic info only, via DOI: [ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0888327025005552)). | Reference point for an adaptive law driven directly by oscillation detection |
+| R11 | W. Barreto da Silveira, P. J. D. de Oliveira Evald, G. V. Hollweg, D. M. C. Milbradt, R. V. Tambara, and H. A. Gründling, "Robust Model Reference Adaptive Control With a Full Adaptive Super-Twisting Sliding Mode Action: Discrete-Time Stability Analysis and Application," *International Journal of Adaptive Control and Signal Processing*, Wiley, 2025. DOI: 10.1002/acs.4101. | §7.33 design basis for the switch to a reference-model approach |
+| — | Zhang, Fridman et al., "Robust super-twisting sliding mode control of input-delayed nonlinear systems using disturbance observers and predictor feedback." ([ResearchGate](https://www.researchgate.net/publication/384247851_Robust_super-twisting_sliding_mode_control_of_input-delayed_nonlinear_systems_using_disturbance_observers_and_predictor_feedback)) | §7.54続報7: general framework for predictor feedback on delayed STA systems (the `smc_pos_asta` Smith predictor design) |
+| — | "Design of super-twisting control gains: A describing function based methodology," *Automatica*. ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0005109818304977)) | §7.54続報7: describing-function analysis of STA self-oscillation — the theoretical backbone of that section |
+| — | "Optimal super-twisting algorithm with time delay estimation for robot manipulators based on feedback linearization," *Mechatronics*. ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0921889017304803)) | §7.54続報7: combining time-delay estimation with the STA |
 
 ## About the Original Project
 
