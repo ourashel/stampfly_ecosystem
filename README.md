@@ -41,6 +41,50 @@
   - 両アプリが共有する経路（ヘディングホールド機構`attitude.yawhold`、ESKFのヨー推定——`eskf.use_mag=0`のためジャイロ積分のみで絶対方位基準がない、モータ/プロペラの個体差によるヨートルク偏り等）に原因がある可能性を検討中
   - 未解決・調査継続中の項目
 
+## 制御構造（smc_pos_asta、水平チャンネル）
+
+`smc_pos_asta`（位置/速度ループも適応STA化した拡張版アプリ、§7.54系列で実機投入）の水平（x, y）
+チャンネルは、位置→速度→姿勢角→レートの4段カスケードのうち**速度ループとレートループだけ**が
+適応STA＋Smith予測器に置き換わっている。位置ループ・姿勢角ループ・ミキサー・機体/ESKF状態推定は
+無改造のPIDのまま。高度（z）チャンネルはこの図に含まれない——構造的に並行するPIDループだが、
+SMC化の対象外（`altitude.vel.kp`のゲイン再調整のみ、§7.54続報9）。
+
+```mermaid
+flowchart LR
+    CMD["位置指令"] --> SUM1((Σ))
+    subgraph OUTER["外側ループ：並進（位置→速度）"]
+        direction LR
+        SUM1 --> POS["位置ループ<br/>PID（無改造）"]
+        POS --> SUM2((Σ))
+        SUM2 --> VEL["速度ループ<br/>適応STA＋Smith予測器"]
+    end
+    VEL -->|目標姿勢角| SUM3((Σ))
+    subgraph INNER["内側ループ：回転（姿勢角→レート）"]
+        direction LR
+        SUM3 --> ATT["姿勢角ループ<br/>PID（無改造）"]
+        ATT --> SUM4((Σ))
+        SUM4 --> RATE["レートループ<br/>適応STA＋Smith予測器"]
+    end
+    RATE --> MIX["ミキサー<br/>無改造"]
+    MIX --> PLANT["機体＋ESKF推定"]
+    PLANT -. 状態フィードバック .-> SUM1
+    PLANT -. 状態フィードバック .-> SUM2
+    PLANT -. 状態フィードバック .-> SUM3
+    PLANT -. 状態フィードバック .-> SUM4
+
+    classDef pid fill:#eee,stroke:#888,color:#333
+    classDef sta fill:#f5c4b3,stroke:#d85a30,color:#4a1b0c
+    class POS,ATT,MIX,PLANT pid
+    class VEL,RATE sta
+```
+
+Smith予測器（コーラル色の2ブロック内部）は、各軸自身の前サイクル指令を1次遅れモデルに通して
+「まだ測定値に現れていない分」を予測し、前方積分してリーキーウォッシュアウトを掛けたうえで
+測定値に加算してからスライディング面を計算する——実測アクチュエータ遅延（約60ms）を、到達則
+ゲインを下げずに補償する（詳細は[`docs/plans/smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md)
+§7.54続報4/7-10、実装は
+[`adaptive_sliding_mode_sta.hpp`](firmware/apps/smc_pos_asta/adaptive_sliding_mode_sta.hpp)）。
+
 ## 関連ドキュメント
 
 | ドキュメント | 内容 |
@@ -126,6 +170,54 @@ Following this verification, `smc_rate_asta` was flashed to a real StampFly for 
     from pure gyro integration with no absolute heading reference), or a per-unit motor/propeller yaw
     torque imbalance
   - Unresolved, investigation ongoing
+
+## Control Structure (smc_pos_asta, horizontal channel)
+
+In `smc_pos_asta` (the extended app that also puts the velocity/position loops on adaptive STA,
+deployed to real hardware in the §7.54 series), the horizontal (x, y) channel's 4-stage cascade
+(position → velocity → attitude → rate) has had **only the velocity loop and the rate loop**
+replaced with adaptive STA + Smith predictor. The position loop, attitude loop, mixer, and
+plant/ESKF state estimation are all still unmodified PID. The altitude (z) channel is not shown
+here — it is a structurally parallel PID loop, but out of scope for the SMC conversion (only
+`altitude.vel.kp` was retuned, §7.54続報9).
+
+```mermaid
+flowchart LR
+    CMD["Position command"] --> SUM1((Σ))
+    subgraph OUTER["Outer loop: translation (position → velocity)"]
+        direction LR
+        SUM1 --> POS["Position loop<br/>PID (unmodified)"]
+        POS --> SUM2((Σ))
+        SUM2 --> VEL["Velocity loop<br/>Adaptive STA + Smith predictor"]
+    end
+    VEL -->|target attitude| SUM3((Σ))
+    subgraph INNER["Inner loop: rotation (attitude → rate)"]
+        direction LR
+        SUM3 --> ATT["Attitude loop<br/>PID (unmodified)"]
+        ATT --> SUM4((Σ))
+        SUM4 --> RATE["Rate loop<br/>Adaptive STA + Smith predictor"]
+    end
+    RATE --> MIX["Mixer<br/>unmodified"]
+    MIX --> PLANT["Plant + ESKF estimate"]
+    PLANT -. state feedback .-> SUM1
+    PLANT -. state feedback .-> SUM2
+    PLANT -. state feedback .-> SUM3
+    PLANT -. state feedback .-> SUM4
+
+    classDef pid fill:#eee,stroke:#888,color:#333
+    classDef sta fill:#f5c4b3,stroke:#d85a30,color:#4a1b0c
+    class POS,ATT,MIX,PLANT pid
+    class VEL,RATE sta
+```
+
+The Smith predictor (inside the two coral blocks) runs each axis's own previous-cycle command
+through a 1st-order lag model to predict how much of it has not yet shown up in the measurement,
+integrates that lead forward with a leaky washout, then adds it to the measurement before the
+sliding surface is computed — compensating the measured actuator lag (~60ms) without detuning the
+reaching-law gains (see
+[`docs/plans/smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md) §7.54続報4/7-10; implementation
+in
+[`adaptive_sliding_mode_sta.hpp`](firmware/apps/smc_pos_asta/adaptive_sliding_mode_sta.hpp)).
 
 ## Related Documents
 
