@@ -267,6 +267,17 @@ namespace param_vars {
     // 動くため、飛行挙動の変化はない。
     float rate_yaw_max_torque = 1.226e-3f;
 
+    // EXPERIMENTAL single-pole low-pass on the rate loop's gyro measurement
+    // (docs/plans/smc-rate-loop-plan.md -- noise-n2 PID takeoff-failure
+    // investigation, 2026-09-13). 0 (default) disables it entirely -- see
+    // pid_controller.hpp's gyro_lpf_tau_ comment. UNVERIFIED across the
+    // perturbation family; do not raise the default without a broader sweep.
+    // 実験的なレートループ・ジャイロ前置一次遅れフィルタ（noise n2 での PID
+    // 離陸失敗調査、2026-09-13）。0（既定）で完全無効——根拠は
+    // pid_controller.hpp の gyro_lpf_tau_ コメント参照。摂動族での検証は
+    // 未実施——広範な掃引を経るまで既定値を上げないこと。
+    float rate_gyro_lpf_tau = 0.0f;
+
     // Sliding-mode rate-loop gains (firmware/apps/smc_rate, an `sf app`
     // experiment -- docs/plans/smc-rate-loop-plan.md). The DEFAULT vehicle
     // build (no SF_APP_DIR, i.e. PidController) never reads these; they
@@ -1643,6 +1654,7 @@ static const ParamEntry table[] = {
     // Yaw torque cap — see the param_vars comment (NT-Kanazawa saturation treatment).
     // ヨートルク上限 — param_vars のコメント参照（NT金沢飽和の治療）。
     {"rate.yaw.max_torque", ParamType::FLOAT, &rate_yaw_max_torque, 1.226e-3f, 1.0e-4f, 1.41e-3f, &notifyControllerReload},
+    {"rate.gyro_lpf_tau", ParamType::FLOAT, &rate_gyro_lpf_tau, 0.0f, 0.0f, 0.05f, &notifyControllerReload},
     // Sliding-mode rate-loop gains (firmware/apps/smc_rate) -- see the
     // param_vars comment above for the seed derivation. Unused by the
     // default vehicle build; wired to notifyControllerReload the same as

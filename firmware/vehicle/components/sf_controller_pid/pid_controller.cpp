@@ -81,6 +81,9 @@ void PidController::loadParams()
     // Yaw torque cap (NT-Kanazawa saturation treatment; see params.cpp)
     // ヨートルク上限（NT金沢飽和の治療。params.cpp 参照）
     params::get_float("rate.yaw.max_torque", max_yaw_torque_);
+    // EXPERIMENTAL gyro low-pass ahead of the rate PIDs -- see pid_controller.hpp
+    // 実験的なジャイロ前置フィルタ（レートPIDの直前）-- pid_controller.hpp参照
+    params::get_float("rate.gyro_lpf_tau", gyro_lpf_tau_);
 
     // Attitude control / 姿勢制御
     params::get_float("attitude.roll.kp", att_roll_.kp);
@@ -796,6 +799,17 @@ ControlOutput PidController::compute(
     gyro_rate.x = state.angular_rate[0];
     gyro_rate.y = state.angular_rate[1];
     gyro_rate.z = state.angular_rate[2];
+
+    // EXPERIMENTAL gyro low-pass ahead of the rate PIDs (see pid_controller.hpp
+    // for the rationale) -- gyro_lpf_tau_<=0 (default) is a no-op, bit-identical
+    // to before this experiment.
+    // 実験的なレートPID前置ジャイロフィルタ（根拠はpid_controller.hpp参照）——
+    // gyro_lpf_tau_<=0（既定）は無効化、本実験前と完全に同一の挙動。
+    if (gyro_lpf_tau_ > 1.0e-6f && dt > 0) {
+        const float alpha = dt / (gyro_lpf_tau_ + dt);
+        gyro_lpf_state_ += (gyro_rate - gyro_lpf_state_) * alpha;
+        gyro_rate = gyro_lpf_state_;
+    }
 
     // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md §7.30続報5) --
     // block C: yaw is the one axis blocks A/B don't cover (no attitude-hold
@@ -1646,6 +1660,7 @@ bool PidController::fetchSysidResult(SysidFreqResult& out)
 void PidController::reset()
 {
     rate_roll_.reset();  rate_pitch_.reset();  rate_yaw_.reset();
+    gyro_lpf_state_ = math::Vec3{};      // EXPERIMENTAL gyro pre-filter state / 実験的ジャイロ前置フィルタ状態
     att_roll_.reset();   att_pitch_.reset();
     alt_pos_.reset();    alt_vel_.reset();
     pos_x_.reset();      pos_y_.reset();

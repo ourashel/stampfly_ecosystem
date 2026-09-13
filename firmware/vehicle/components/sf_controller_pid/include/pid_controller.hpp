@@ -155,6 +155,30 @@ private:
     // Rate control PIDs (innermost loop) / レート制御PID（最内ループ）
     PID rate_roll_, rate_pitch_, rate_yaw_;
 
+    // EXPERIMENTAL: single-pole low-pass on the rate loop's gyro measurement,
+    // applied BEFORE rate_{roll,pitch,yaw}_.compute() (docs/plans/smc-rate-
+    // loop-plan.md -- noise-n2 PID takeoff-failure investigation, 2026-09-13).
+    // PID::compute()'s P-term has no filtering at all on its measurement input
+    // (only the D-term gets the incomplete-derivative filter, pid.hpp), so
+    // raw vibration noise on gyro (sensor_noise.hpp's N2 model injects up to
+    // ~K[axis]*duty^2 rad/s of 1-sigma noise, K up to 1.08) drives full-swing
+    // torque commands every cycle. tau<=0 (default) disables this filter
+    // entirely -- bit-identical to before this experiment. UNVERIFIED across
+    // the perturbation family (simulation-policy.md section 6); do not adopt
+    // the default without a broader SILS sweep first.
+    // 実験的: レートループのジャイロ測定値への一次遅れフィルタ、
+    // rate_{roll,pitch,yaw}_.compute() の直前に適用（docs/plans/
+    // smc-rate-loop-plan.md — noise n2 での PID 離陸失敗調査、2026-09-13）。
+    // PID::compute() の比例項は測定値への前置フィルタを一切持たない（微分項
+    // のみ不完全微分フィルタを持つ、pid.hpp参照）ため、ジャイロの生振動
+    // ノイズ（sensor_noise.hpp の N2 モデルは最大 K[axis]*duty^2 rad/s
+    // （K最大1.08）の1σノイズを注入）が毎サイクル全振幅のトルク指令を
+    // 駆動する。tau<=0（既定）で完全無効——本実験前と完全に同一の挙動。
+    // 摂動族全体（simulation-policy.md §6）での検証は未実施——広範な
+    // SILS掃引を経るまで既定値として採用しないこと。
+    float gyro_lpf_tau_ = 0.0f;      // [s] param rate.gyro_lpf_tau, 0=disabled
+    math::Vec3 gyro_lpf_state_;      // filtered gyro state, reset() clears it
+
     // Attitude control PIDs (outer loop) / 姿勢制御PID（外ループ）
     PID att_roll_, att_pitch_;
 
