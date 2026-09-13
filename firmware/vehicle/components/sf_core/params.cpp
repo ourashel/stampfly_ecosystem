@@ -907,6 +907,127 @@ namespace param_vars {
     float smc_pos_sta_vely_e_reset   = 1.25f;   // [m/s]
     float smc_pos_sta_vely_z_leak_tau = 0.5f;   // [s]
 
+    // Adaptive switching-gain STA for BOTH the rate loop and the velocity
+    // loop (firmware/apps/smc_pos_asta, docs/plans/smc-rate-loop-plan.md
+    // 2026-09-13 session -- applies smc_rate_asta's proven reference-model +
+    // trend-based adaptive law, section 7.36, to position/velocity for the
+    // first time). rate axes (roll/pitch/yaw) seeded from smc_asta.*'s own
+    // defaults (identical inertia); velocity axes (velx/vely) seeded from
+    // smc_pos_sta.velx/vely's fixed-gain k1/k2 (k1_init=0.6, k2_ratio=0.5)
+    // with the adaptive-law time constants (filter_tau/mref_*) UNCHANGED
+    // from the rate-loop defaults (they are time constants, not gain-scale
+    // dependent) and adapt_rate/k1_min/k1_max/k1_slew_max scaled down by the
+    // same ~100x ratio as k1_init itself (rate k1~60 vs velocity k1~0.6).
+    // ALL VALUES ARE UNVERIFIED SEEDS -- this app has not been SILS-tuned or
+    // regression-tested yet.
+    // 適応スイッチングゲイン付きSTA、レートループと速度ループの両方
+    // （firmware/apps/smc_pos_asta、docs/plans/smc-rate-loop-plan.md
+    // 2026-09-13セッション -- smc_rate_astaで実証済みの規範モデル+トレンド
+    // 判定適応則（§7.36）を、初めて位置/速度へ適用）。レート軸
+    // （roll/pitch/yaw）はsmc_asta.*自身の既定値から（慣性が同一のため）、
+    // 速度軸（velx/vely）はsmc_pos_sta.velx/velyの固定ゲインk1/k2
+    // （k1_init=0.6、k2_ratio=0.5）から、適応則の時定数（filter_tau/mref_*）
+    // はレートループの既定値のまま（ゲインスケール非依存の時定数のため）、
+    // adapt_rate/k1_min/k1_max/k1_slew_maxはk1_init自体と同じ約100倍の比率
+    // （レートk1~60 対 速度k1~0.6）でスケールダウンしてシード。**全ての値は
+    // 未検証のシード値**——本appはまだSILSでのチューニング・回帰確認を
+    // 行っていない。
+    float smc_pos_asta_roll_k1_init = 60.0f;
+    float smc_pos_asta_roll_k1_min = 30.0f;
+    float smc_pos_asta_roll_k1_max = 150.0f;
+    float smc_pos_asta_roll_k2_ratio = 0.5f;
+    float smc_pos_asta_roll_adapt_rate = 20.0f;
+    float smc_pos_asta_roll_leak_ratio = 0.2f;
+    float smc_pos_asta_roll_dead_band = 0.05f;
+    float smc_pos_asta_roll_filter_tau = 0.05f;
+    float smc_pos_asta_roll_mref_tau = 0.03f;
+    float smc_pos_asta_roll_mref_env_tau = 0.25f;
+    float smc_pos_asta_roll_mref_env_base_tau = 0.6f;
+    float smc_pos_asta_roll_mref_trend_floor = 0.02f;
+    float smc_pos_asta_roll_mref_shrink_ratio = 1.0f;
+    float smc_pos_asta_roll_mref_dwell_time = 0.06f;
+    float smc_pos_asta_roll_k1_slew_max = 1000.0f;
+    float smc_pos_asta_roll_phi = 0.02f;
+    float smc_pos_asta_roll_lambda_i = 6.0f;
+    float smc_pos_asta_roll_e_reset = 0.75f;
+    float smc_pos_asta_roll_z_leak_tau = 0.5f;
+    float smc_pos_asta_pitch_k1_init = 60.0f;
+    float smc_pos_asta_pitch_k1_min = 30.0f;
+    float smc_pos_asta_pitch_k1_max = 150.0f;
+    float smc_pos_asta_pitch_k2_ratio = 0.5f;
+    float smc_pos_asta_pitch_adapt_rate = 20.0f;
+    float smc_pos_asta_pitch_leak_ratio = 0.2f;
+    float smc_pos_asta_pitch_dead_band = 0.05f;
+    float smc_pos_asta_pitch_filter_tau = 0.05f;
+    float smc_pos_asta_pitch_mref_tau = 0.03f;
+    float smc_pos_asta_pitch_mref_env_tau = 0.25f;
+    float smc_pos_asta_pitch_mref_env_base_tau = 0.6f;
+    float smc_pos_asta_pitch_mref_trend_floor = 0.02f;
+    float smc_pos_asta_pitch_mref_shrink_ratio = 1.0f;
+    float smc_pos_asta_pitch_mref_dwell_time = 0.06f;
+    float smc_pos_asta_pitch_k1_slew_max = 1000.0f;
+    float smc_pos_asta_pitch_phi = 0.02f;
+    float smc_pos_asta_pitch_lambda_i = 6.0f;
+    float smc_pos_asta_pitch_e_reset = 0.75f;
+    float smc_pos_asta_pitch_z_leak_tau = 0.5f;
+    float smc_pos_asta_yaw_k1_init = 15.2f;
+    float smc_pos_asta_yaw_k1_min = 7.6f;
+    float smc_pos_asta_yaw_k1_max = 38.0f;
+    float smc_pos_asta_yaw_k2_ratio = 0.5f;
+    float smc_pos_asta_yaw_adapt_rate = 5.0f;
+    float smc_pos_asta_yaw_leak_ratio = 0.2f;
+    float smc_pos_asta_yaw_dead_band = 0.05f;
+    float smc_pos_asta_yaw_filter_tau = 0.05f;
+    float smc_pos_asta_yaw_mref_tau = 0.03f;
+    float smc_pos_asta_yaw_mref_env_tau = 0.25f;
+    float smc_pos_asta_yaw_mref_env_base_tau = 0.6f;
+    float smc_pos_asta_yaw_mref_trend_floor = 0.02f;
+    float smc_pos_asta_yaw_mref_shrink_ratio = 1.0f;
+    float smc_pos_asta_yaw_mref_dwell_time = 0.06f;
+    float smc_pos_asta_yaw_k1_slew_max = 1000.0f;
+    float smc_pos_asta_yaw_phi = 0.04f;
+    float smc_pos_asta_yaw_lambda_i = 1.25f;
+    float smc_pos_asta_yaw_e_reset = 1.5f;
+    float smc_pos_asta_yaw_z_leak_tau = 1.0f;
+    float smc_pos_asta_velx_k1_init = 0.6f;
+    float smc_pos_asta_velx_k1_min = 0.15f;
+    float smc_pos_asta_velx_k1_max = 1.5f;
+    float smc_pos_asta_velx_k2_ratio = 0.5f;
+    float smc_pos_asta_velx_adapt_rate = 0.2f;
+    float smc_pos_asta_velx_leak_ratio = 0.2f;
+    float smc_pos_asta_velx_dead_band = 0.05f;
+    float smc_pos_asta_velx_filter_tau = 0.05f;
+    float smc_pos_asta_velx_mref_tau = 0.03f;
+    float smc_pos_asta_velx_mref_env_tau = 0.25f;
+    float smc_pos_asta_velx_mref_env_base_tau = 0.6f;
+    float smc_pos_asta_velx_mref_trend_floor = 0.02f;
+    float smc_pos_asta_velx_mref_shrink_ratio = 1.0f;
+    float smc_pos_asta_velx_mref_dwell_time = 0.06f;
+    float smc_pos_asta_velx_k1_slew_max = 10.0f;
+    float smc_pos_asta_velx_phi = 0.03f;
+    float smc_pos_asta_velx_lambda_i = 0.5f;
+    float smc_pos_asta_velx_e_reset = 1.25f;
+    float smc_pos_asta_velx_z_leak_tau = 0.5f;
+    float smc_pos_asta_vely_k1_init = 0.6f;
+    float smc_pos_asta_vely_k1_min = 0.15f;
+    float smc_pos_asta_vely_k1_max = 1.5f;
+    float smc_pos_asta_vely_k2_ratio = 0.5f;
+    float smc_pos_asta_vely_adapt_rate = 0.2f;
+    float smc_pos_asta_vely_leak_ratio = 0.2f;
+    float smc_pos_asta_vely_dead_band = 0.05f;
+    float smc_pos_asta_vely_filter_tau = 0.05f;
+    float smc_pos_asta_vely_mref_tau = 0.03f;
+    float smc_pos_asta_vely_mref_env_tau = 0.25f;
+    float smc_pos_asta_vely_mref_env_base_tau = 0.6f;
+    float smc_pos_asta_vely_mref_trend_floor = 0.02f;
+    float smc_pos_asta_vely_mref_shrink_ratio = 1.0f;
+    float smc_pos_asta_vely_mref_dwell_time = 0.06f;
+    float smc_pos_asta_vely_k1_slew_max = 10.0f;
+    float smc_pos_asta_vely_phi = 0.03f;
+    float smc_pos_asta_vely_lambda_i = 0.5f;
+    float smc_pos_asta_vely_e_reset = 1.25f;
+    float smc_pos_asta_vely_z_leak_tau = 0.5f;
+
     // Adaptive-gain super-twisting rate-loop gains (firmware/apps/
     // smc_rate_asta, AdaptiveSuperTwistingRate) -- see smc_rate_asta.hpp
     // for the control law and docs/plans/smc-rate-loop-plan.md §7.31 for
@@ -1839,6 +1960,101 @@ static const ParamEntry table[] = {
     {"smc_pos_sta.vely.lambda_i",  ParamType::FLOAT, &smc_pos_sta_vely_lambda_i,  0.5f,   0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.vely.e_reset",   ParamType::FLOAT, &smc_pos_sta_vely_e_reset,   1.25f,  0.0f, 5.0f,    &notifyControllerReload},
     {"smc_pos_sta.vely.z_leak_tau", ParamType::FLOAT, &smc_pos_sta_vely_z_leak_tau, 0.5f, 0.0f, 10.0f,   &notifyControllerReload},
+    {"smc_pos_asta.roll.k1_init", ParamType::FLOAT, &smc_pos_asta_roll_k1_init, 60.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.k1_min", ParamType::FLOAT, &smc_pos_asta_roll_k1_min, 30.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.k1_max", ParamType::FLOAT, &smc_pos_asta_roll_k1_max, 150.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.k2_ratio", ParamType::FLOAT, &smc_pos_asta_roll_k2_ratio, 0.5f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.adapt_rate", ParamType::FLOAT, &smc_pos_asta_roll_adapt_rate, 20.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.leak_ratio", ParamType::FLOAT, &smc_pos_asta_roll_leak_ratio, 0.2f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.dead_band", ParamType::FLOAT, &smc_pos_asta_roll_dead_band, 0.05f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.filter_tau", ParamType::FLOAT, &smc_pos_asta_roll_filter_tau, 0.05f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.mref_tau", ParamType::FLOAT, &smc_pos_asta_roll_mref_tau, 0.03f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.mref_env_tau", ParamType::FLOAT, &smc_pos_asta_roll_mref_env_tau, 0.25f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.mref_env_base_tau", ParamType::FLOAT, &smc_pos_asta_roll_mref_env_base_tau, 0.6f, 0.0f, 3.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_roll_mref_trend_floor, 0.02f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.mref_shrink_ratio", ParamType::FLOAT, &smc_pos_asta_roll_mref_shrink_ratio, 1.0f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.mref_dwell_time", ParamType::FLOAT, &smc_pos_asta_roll_mref_dwell_time, 0.06f, 0.0f, 1.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.k1_slew_max", ParamType::FLOAT, &smc_pos_asta_roll_k1_slew_max, 1000.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.phi", ParamType::FLOAT, &smc_pos_asta_roll_phi, 0.02f, 0.001f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.lambda_i", ParamType::FLOAT, &smc_pos_asta_roll_lambda_i, 6.0f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.e_reset", ParamType::FLOAT, &smc_pos_asta_roll_e_reset, 0.75f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_roll_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.k1_init", ParamType::FLOAT, &smc_pos_asta_pitch_k1_init, 60.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.k1_min", ParamType::FLOAT, &smc_pos_asta_pitch_k1_min, 30.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.k1_max", ParamType::FLOAT, &smc_pos_asta_pitch_k1_max, 150.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.k2_ratio", ParamType::FLOAT, &smc_pos_asta_pitch_k2_ratio, 0.5f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.adapt_rate", ParamType::FLOAT, &smc_pos_asta_pitch_adapt_rate, 20.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.leak_ratio", ParamType::FLOAT, &smc_pos_asta_pitch_leak_ratio, 0.2f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.dead_band", ParamType::FLOAT, &smc_pos_asta_pitch_dead_band, 0.05f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.filter_tau", ParamType::FLOAT, &smc_pos_asta_pitch_filter_tau, 0.05f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.mref_tau", ParamType::FLOAT, &smc_pos_asta_pitch_mref_tau, 0.03f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.mref_env_tau", ParamType::FLOAT, &smc_pos_asta_pitch_mref_env_tau, 0.25f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.mref_env_base_tau", ParamType::FLOAT, &smc_pos_asta_pitch_mref_env_base_tau, 0.6f, 0.0f, 3.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_pitch_mref_trend_floor, 0.02f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.mref_shrink_ratio", ParamType::FLOAT, &smc_pos_asta_pitch_mref_shrink_ratio, 1.0f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.mref_dwell_time", ParamType::FLOAT, &smc_pos_asta_pitch_mref_dwell_time, 0.06f, 0.0f, 1.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.k1_slew_max", ParamType::FLOAT, &smc_pos_asta_pitch_k1_slew_max, 1000.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.phi", ParamType::FLOAT, &smc_pos_asta_pitch_phi, 0.02f, 0.001f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.lambda_i", ParamType::FLOAT, &smc_pos_asta_pitch_lambda_i, 6.0f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.e_reset", ParamType::FLOAT, &smc_pos_asta_pitch_e_reset, 0.75f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_pitch_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.k1_init", ParamType::FLOAT, &smc_pos_asta_yaw_k1_init, 15.2f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.k1_min", ParamType::FLOAT, &smc_pos_asta_yaw_k1_min, 7.6f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.k1_max", ParamType::FLOAT, &smc_pos_asta_yaw_k1_max, 38.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.k2_ratio", ParamType::FLOAT, &smc_pos_asta_yaw_k2_ratio, 0.5f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.adapt_rate", ParamType::FLOAT, &smc_pos_asta_yaw_adapt_rate, 5.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.leak_ratio", ParamType::FLOAT, &smc_pos_asta_yaw_leak_ratio, 0.2f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.dead_band", ParamType::FLOAT, &smc_pos_asta_yaw_dead_band, 0.05f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.filter_tau", ParamType::FLOAT, &smc_pos_asta_yaw_filter_tau, 0.05f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.mref_tau", ParamType::FLOAT, &smc_pos_asta_yaw_mref_tau, 0.03f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.mref_env_tau", ParamType::FLOAT, &smc_pos_asta_yaw_mref_env_tau, 0.25f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.mref_env_base_tau", ParamType::FLOAT, &smc_pos_asta_yaw_mref_env_base_tau, 0.6f, 0.0f, 3.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_yaw_mref_trend_floor, 0.02f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.mref_shrink_ratio", ParamType::FLOAT, &smc_pos_asta_yaw_mref_shrink_ratio, 1.0f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.mref_dwell_time", ParamType::FLOAT, &smc_pos_asta_yaw_mref_dwell_time, 0.06f, 0.0f, 1.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.k1_slew_max", ParamType::FLOAT, &smc_pos_asta_yaw_k1_slew_max, 1000.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.phi", ParamType::FLOAT, &smc_pos_asta_yaw_phi, 0.04f, 0.001f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.lambda_i", ParamType::FLOAT, &smc_pos_asta_yaw_lambda_i, 1.25f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.e_reset", ParamType::FLOAT, &smc_pos_asta_yaw_e_reset, 1.5f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_yaw_z_leak_tau, 1.0f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.k1_init", ParamType::FLOAT, &smc_pos_asta_velx_k1_init, 0.6f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.k1_min", ParamType::FLOAT, &smc_pos_asta_velx_k1_min, 0.15f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.k1_max", ParamType::FLOAT, &smc_pos_asta_velx_k1_max, 1.5f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.k2_ratio", ParamType::FLOAT, &smc_pos_asta_velx_k2_ratio, 0.5f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.adapt_rate", ParamType::FLOAT, &smc_pos_asta_velx_adapt_rate, 0.2f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.leak_ratio", ParamType::FLOAT, &smc_pos_asta_velx_leak_ratio, 0.2f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.dead_band", ParamType::FLOAT, &smc_pos_asta_velx_dead_band, 0.05f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.filter_tau", ParamType::FLOAT, &smc_pos_asta_velx_filter_tau, 0.05f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.mref_tau", ParamType::FLOAT, &smc_pos_asta_velx_mref_tau, 0.03f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.mref_env_tau", ParamType::FLOAT, &smc_pos_asta_velx_mref_env_tau, 0.25f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.mref_env_base_tau", ParamType::FLOAT, &smc_pos_asta_velx_mref_env_base_tau, 0.6f, 0.0f, 3.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_velx_mref_trend_floor, 0.02f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.mref_shrink_ratio", ParamType::FLOAT, &smc_pos_asta_velx_mref_shrink_ratio, 1.0f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.mref_dwell_time", ParamType::FLOAT, &smc_pos_asta_velx_mref_dwell_time, 0.06f, 0.0f, 1.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.k1_slew_max", ParamType::FLOAT, &smc_pos_asta_velx_k1_slew_max, 10.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.phi", ParamType::FLOAT, &smc_pos_asta_velx_phi, 0.03f, 0.001f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.lambda_i", ParamType::FLOAT, &smc_pos_asta_velx_lambda_i, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.e_reset", ParamType::FLOAT, &smc_pos_asta_velx_e_reset, 1.25f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_velx_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.k1_init", ParamType::FLOAT, &smc_pos_asta_vely_k1_init, 0.6f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.k1_min", ParamType::FLOAT, &smc_pos_asta_vely_k1_min, 0.15f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.k1_max", ParamType::FLOAT, &smc_pos_asta_vely_k1_max, 1.5f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.k2_ratio", ParamType::FLOAT, &smc_pos_asta_vely_k2_ratio, 0.5f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.adapt_rate", ParamType::FLOAT, &smc_pos_asta_vely_adapt_rate, 0.2f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.leak_ratio", ParamType::FLOAT, &smc_pos_asta_vely_leak_ratio, 0.2f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.dead_band", ParamType::FLOAT, &smc_pos_asta_vely_dead_band, 0.05f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.filter_tau", ParamType::FLOAT, &smc_pos_asta_vely_filter_tau, 0.05f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.mref_tau", ParamType::FLOAT, &smc_pos_asta_vely_mref_tau, 0.03f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.mref_env_tau", ParamType::FLOAT, &smc_pos_asta_vely_mref_env_tau, 0.25f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.mref_env_base_tau", ParamType::FLOAT, &smc_pos_asta_vely_mref_env_base_tau, 0.6f, 0.0f, 3.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.mref_trend_floor", ParamType::FLOAT, &smc_pos_asta_vely_mref_trend_floor, 0.02f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.mref_shrink_ratio", ParamType::FLOAT, &smc_pos_asta_vely_mref_shrink_ratio, 1.0f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.mref_dwell_time", ParamType::FLOAT, &smc_pos_asta_vely_mref_dwell_time, 0.06f, 0.0f, 1.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.k1_slew_max", ParamType::FLOAT, &smc_pos_asta_vely_k1_slew_max, 10.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.phi", ParamType::FLOAT, &smc_pos_asta_vely_phi, 0.03f, 0.001f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.lambda_i", ParamType::FLOAT, &smc_pos_asta_vely_lambda_i, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.e_reset", ParamType::FLOAT, &smc_pos_asta_vely_e_reset, 1.25f, 0.0f, 5.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_vely_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
     // the default vehicle/smc_rate builds.
