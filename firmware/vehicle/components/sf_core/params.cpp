@@ -278,6 +278,17 @@ namespace param_vars {
     // 未実施——広範な掃引を経るまで既定値を上げないこと。
     float rate_gyro_lpf_tau = 0.0f;
 
+    // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md section 7.47):
+    // deterministic zero-mean square-wave torque jitter on roll, to test the
+    // nonlinear-averaging-loss hypothesis (thrustToDuty()/motor-curve
+    // mismatch) in isolation from sensor noise. Both 0 (default) = disabled.
+    // 一時的診断（docs/plans/smc-rate-loop-plan.md §7.47）: rollへの決定論的
+    // ゼロ平均矩形波トルクジッタ——非線形平均化ロス仮説（thrustToDuty()/
+    // モータ曲線の不整合）をセンサノイズから切り離して検証する。両方とも
+    // 0（既定）で無効。
+    float debug_torque_jitter_amp = 0.0f;
+    float debug_torque_jitter_hz  = 0.0f;
+
     // Sliding-mode rate-loop gains (firmware/apps/smc_rate, an `sf app`
     // experiment -- docs/plans/smc-rate-loop-plan.md). The DEFAULT vehicle
     // build (no SF_APP_DIR, i.e. PidController) never reads these; they
@@ -1655,6 +1666,8 @@ static const ParamEntry table[] = {
     // ヨートルク上限 — param_vars のコメント参照（NT金沢飽和の治療）。
     {"rate.yaw.max_torque", ParamType::FLOAT, &rate_yaw_max_torque, 1.226e-3f, 1.0e-4f, 1.41e-3f, &notifyControllerReload},
     {"rate.gyro_lpf_tau", ParamType::FLOAT, &rate_gyro_lpf_tau, 0.0f, 0.0f, 0.05f, &notifyControllerReload},
+    {"debug.torque_jitter_amp", ParamType::FLOAT, &debug_torque_jitter_amp, 0.0f, 0.0f, 5.0e-3f, &notifyControllerReload},
+    {"debug.torque_jitter_hz",  ParamType::FLOAT, &debug_torque_jitter_hz,  0.0f, 0.0f, 400.0f,  &notifyControllerReload},
     // Sliding-mode rate-loop gains (firmware/apps/smc_rate) -- see the
     // param_vars comment above for the seed derivation. Unused by the
     // default vehicle build; wired to notifyControllerReload the same as

@@ -179,6 +179,16 @@ private:
     float gyro_lpf_tau_ = 0.0f;      // [s] param rate.gyro_lpf_tau, 0=disabled
     math::Vec3 gyro_lpf_state_;      // filtered gyro state, reset() clears it
 
+    // TEMPORARY diagnostic (section 7.47): deterministic zero-mean square-wave
+    // torque jitter on roll, to isolate the nonlinear-averaging-loss mechanism
+    // from sensor noise -- see the compute() comment at the injection site.
+    // 一時的診断（§7.47）: rollへの決定論的ゼロ平均矩形波トルクジッタ——
+    // センサノイズから非線形平均化ロスの機序を切り分ける。根拠はcompute()の
+    // 注入箇所のコメント参照。
+    float jitter_amp_ = 0.0f;  // [Nm] param debug.torque_jitter_amp, 0=disabled
+    float jitter_hz_  = 0.0f;  // [Hz] param debug.torque_jitter_hz
+    float jitter_t_   = 0.0f;  // [s] elapsed time for the square wave, reset() clears it
+
     // Attitude control PIDs (outer loop) / 姿勢制御PID（外ループ）
     PID att_roll_, att_pitch_;
 

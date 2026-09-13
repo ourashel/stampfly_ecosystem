@@ -84,6 +84,10 @@ void PidController::loadParams()
     // EXPERIMENTAL gyro low-pass ahead of the rate PIDs -- see pid_controller.hpp
     // 実験的なジャイロ前置フィルタ（レートPIDの直前）-- pid_controller.hpp参照
     params::get_float("rate.gyro_lpf_tau", gyro_lpf_tau_);
+    // TEMPORARY diagnostic torque-jitter injector -- see pid_controller.hpp
+    // 一時的診断用トルクジッタ注入 -- pid_controller.hpp参照
+    params::get_float("debug.torque_jitter_amp", jitter_amp_);
+    params::get_float("debug.torque_jitter_hz",  jitter_hz_);
 
     // Attitude control / 姿勢制御
     params::get_float("attitude.roll.kp", att_roll_.kp);
@@ -836,6 +840,44 @@ ControlOutput PidController::compute(
     output.torque[1] = rate_pitch_.compute(rate_sp_pitch, gyro_rate.y, dt);
     output.torque[2] = rate_yaw_.compute(rate_sp_yaw, gyro_rate.z, dt);
     output.thrust = thrust;
+
+    // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md section 7.47):
+    // inject a deterministic, ZERO-MEAN square-wave torque perturbation on roll
+    // to test whether per-motor thrust JITTER ALONE (no sensor noise at all)
+    // reduces net climb -- via the mixer's thrustToDuty()/motor-curve
+    // nonlinearity composed with the SILS plant's own (mismatched, per
+    // simulation-policy.md backlog #3) motor curve. Isolates the mechanism
+    // hypothesized in section 7.46 from sensor noise entirely: if a hand-
+    // injected, zero-mean torque square-wave alone measurably reduces
+    // truth altitude climb under `--noise off`, that confirms a nonlinear-
+    // averaging loss in the actuation chain, independent of any noise model.
+    // jitter_amp_<=0 (default) is a no-op, bit-identical to before this test.
+    // 一時的診断（docs/plans/smc-rate-loop-plan.md §7.47）: 決定論的な
+    // ゼロ平均矩形波トルク擾乱をrollに注入し、モータあたりの推力ジッタ「単独」
+    // （センサノイズ無し）で正味の上昇量が減るかを検証する——ミキサーの
+    // thrustToDuty()/モータ曲線の非線形性と、SILSプラント自身の（不整合な、
+    // simulation-policy.mdバックログ#3参照）モータ曲線の合成を介した機序。
+    // §7.46で提示した仮説をセンサノイズから完全に切り離して検証する:
+    // `--noise off`下で手動注入したゼロ平均矩形波トルクだけで真の上昇高度が
+    // 目に見えて減れば、ノイズモデルに依らないアクチュエーション連鎖の
+    // 非線形平均化ロスが確認できる。jitter_amp_<=0（既定）は無効化、
+    // 本テスト前と完全に同一の挙動。
+    if (jitter_amp_ > 1.0e-9f && dt > 0) {
+        jitter_t_ += dt;
+        // Decorrelated per-axis frequencies (roll/pitch/yaw) so the 3 square
+        // waves don't stay in a fixed phase relationship -- closer to how
+        // independent per-axis sensor noise would drive 3 uncorrelated
+        // torque jitters, vs. section 7.47's original single-axis test.
+        // 軸別に周波数をずらし（roll/pitch/yaw）、3つの矩形波が固定位相関係に
+        // ならないようにする——独立な軸別センサノイズが3つの無相関なトルク
+        // ジッタを駆動するのに近い、§7.47当初の単軸版との違い。
+        const float hz[3] = {jitter_hz_, jitter_hz_ * 1.46f, jitter_hz_ * 1.93f};
+        for (int i = 0; i < 3; ++i) {
+            const float half_period = (hz[i] > 1.0e-6f) ? (0.5f / hz[i]) : 1.0e9f;
+            const int half = static_cast<int>(jitter_t_ / half_period);
+            output.torque[i] += ((half % 2) == 0) ? jitter_amp_ : -jitter_amp_;
+        }
+    }
 
     // Stepped-sine I/Q accumulation (after the settle transient): correlate the
     // ACTUAL rate-loop output torque u and the gyro y with the excitation phase.
@@ -1661,6 +1703,7 @@ void PidController::reset()
 {
     rate_roll_.reset();  rate_pitch_.reset();  rate_yaw_.reset();
     gyro_lpf_state_ = math::Vec3{};      // EXPERIMENTAL gyro pre-filter state / 実験的ジャイロ前置フィルタ状態
+    jitter_t_ = 0.0f;                    // TEMPORARY diagnostic torque-jitter timer / 一時的診断用トルクジッタタイマ
     att_roll_.reset();   att_pitch_.reset();
     alt_pos_.reset();    alt_vel_.reset();
     pos_x_.reset();      pos_y_.reset();
