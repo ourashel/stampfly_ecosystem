@@ -951,6 +951,8 @@ namespace param_vars {
     float smc_pos_asta_roll_lambda_i = 6.0f;
     float smc_pos_asta_roll_e_reset = 0.75f;
     float smc_pos_asta_roll_z_leak_tau = 0.5f;
+    float smc_pos_asta_roll_predictor_tau_m = 0.0f;     // [s] Smith-predictor lag model; 0=disabled (§7.54続報10)
+    float smc_pos_asta_roll_predictor_leak_tau = 0.5f;  // [s] lead-term washout
     float smc_pos_asta_pitch_k1_init = 60.0f;
     float smc_pos_asta_pitch_k1_min = 30.0f;
     float smc_pos_asta_pitch_k1_max = 150.0f;
@@ -970,6 +972,8 @@ namespace param_vars {
     float smc_pos_asta_pitch_lambda_i = 6.0f;
     float smc_pos_asta_pitch_e_reset = 0.75f;
     float smc_pos_asta_pitch_z_leak_tau = 0.5f;
+    float smc_pos_asta_pitch_predictor_tau_m = 0.0f;
+    float smc_pos_asta_pitch_predictor_leak_tau = 0.5f;
     float smc_pos_asta_yaw_k1_init = 15.2f;
     float smc_pos_asta_yaw_k1_min = 7.6f;
     float smc_pos_asta_yaw_k1_max = 38.0f;
@@ -989,6 +993,8 @@ namespace param_vars {
     float smc_pos_asta_yaw_lambda_i = 1.25f;
     float smc_pos_asta_yaw_e_reset = 1.5f;
     float smc_pos_asta_yaw_z_leak_tau = 1.0f;
+    float smc_pos_asta_yaw_predictor_tau_m = 0.0f;
+    float smc_pos_asta_yaw_predictor_leak_tau = 0.5f;
     float smc_pos_asta_velx_k1_init = 0.6f;
     float smc_pos_asta_velx_k1_min = 0.3f;   // tuned 2026-09-13 (was 0.15, see plan section 7.51)
     float smc_pos_asta_velx_k1_max = 1.5f;
@@ -1008,6 +1014,8 @@ namespace param_vars {
     float smc_pos_asta_velx_lambda_i = 0.5f;
     float smc_pos_asta_velx_e_reset = 1.25f;
     float smc_pos_asta_velx_z_leak_tau = 0.5f;
+    float smc_pos_asta_velx_predictor_tau_m = 0.0f;
+    float smc_pos_asta_velx_predictor_leak_tau = 0.5f;
     float smc_pos_asta_vely_k1_init = 0.6f;
     float smc_pos_asta_vely_k1_min = 0.3f;   // tuned 2026-09-13 (was 0.15, see plan section 7.51)
     float smc_pos_asta_vely_k1_max = 1.5f;
@@ -1027,6 +1035,8 @@ namespace param_vars {
     float smc_pos_asta_vely_lambda_i = 0.5f;
     float smc_pos_asta_vely_e_reset = 1.25f;
     float smc_pos_asta_vely_z_leak_tau = 0.5f;
+    float smc_pos_asta_vely_predictor_tau_m = 0.0f;
+    float smc_pos_asta_vely_predictor_leak_tau = 0.5f;
 
     // Diagnostic/experimental slew-rate limit [m/s^2] on vx_sp/vy_sp before
     // it reaches smc_vel_x_/smc_vel_y_ -- see AppController::vsp_slew_max_'s
@@ -1989,6 +1999,8 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.roll.lambda_i", ParamType::FLOAT, &smc_pos_asta_roll_lambda_i, 6.0f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.roll.e_reset", ParamType::FLOAT, &smc_pos_asta_roll_e_reset, 0.75f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.roll.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_roll_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.predictor_tau_m", ParamType::FLOAT, &smc_pos_asta_roll_predictor_tau_m, 0.0f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.roll.predictor_leak_tau", ParamType::FLOAT, &smc_pos_asta_roll_predictor_leak_tau, 0.5f, 0.001f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.pitch.k1_init", ParamType::FLOAT, &smc_pos_asta_pitch_k1_init, 60.0f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.pitch.k1_min", ParamType::FLOAT, &smc_pos_asta_pitch_k1_min, 30.0f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.pitch.k1_max", ParamType::FLOAT, &smc_pos_asta_pitch_k1_max, 150.0f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2008,6 +2020,8 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.pitch.lambda_i", ParamType::FLOAT, &smc_pos_asta_pitch_lambda_i, 6.0f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.pitch.e_reset", ParamType::FLOAT, &smc_pos_asta_pitch_e_reset, 0.75f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.pitch.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_pitch_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.predictor_tau_m", ParamType::FLOAT, &smc_pos_asta_pitch_predictor_tau_m, 0.0f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.pitch.predictor_leak_tau", ParamType::FLOAT, &smc_pos_asta_pitch_predictor_leak_tau, 0.5f, 0.001f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.yaw.k1_init", ParamType::FLOAT, &smc_pos_asta_yaw_k1_init, 15.2f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.yaw.k1_min", ParamType::FLOAT, &smc_pos_asta_yaw_k1_min, 7.6f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.yaw.k1_max", ParamType::FLOAT, &smc_pos_asta_yaw_k1_max, 38.0f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2027,6 +2041,8 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.yaw.lambda_i", ParamType::FLOAT, &smc_pos_asta_yaw_lambda_i, 1.25f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.yaw.e_reset", ParamType::FLOAT, &smc_pos_asta_yaw_e_reset, 1.5f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.yaw.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_yaw_z_leak_tau, 1.0f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.predictor_tau_m", ParamType::FLOAT, &smc_pos_asta_yaw_predictor_tau_m, 0.0f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.yaw.predictor_leak_tau", ParamType::FLOAT, &smc_pos_asta_yaw_predictor_leak_tau, 0.5f, 0.001f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.k1_init", ParamType::FLOAT, &smc_pos_asta_velx_k1_init, 0.6f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.k1_min", ParamType::FLOAT, &smc_pos_asta_velx_k1_min, 0.3f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.k1_max", ParamType::FLOAT, &smc_pos_asta_velx_k1_max, 1.5f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2046,6 +2062,8 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.velx.lambda_i", ParamType::FLOAT, &smc_pos_asta_velx_lambda_i, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.e_reset", ParamType::FLOAT, &smc_pos_asta_velx_e_reset, 1.25f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_velx_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.predictor_tau_m", ParamType::FLOAT, &smc_pos_asta_velx_predictor_tau_m, 0.0f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.predictor_leak_tau", ParamType::FLOAT, &smc_pos_asta_velx_predictor_leak_tau, 0.5f, 0.001f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_init", ParamType::FLOAT, &smc_pos_asta_vely_k1_init, 0.6f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_min", ParamType::FLOAT, &smc_pos_asta_vely_k1_min, 0.3f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_max", ParamType::FLOAT, &smc_pos_asta_vely_k1_max, 1.5f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2065,6 +2083,8 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.vely.lambda_i", ParamType::FLOAT, &smc_pos_asta_vely_lambda_i, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.e_reset", ParamType::FLOAT, &smc_pos_asta_vely_e_reset, 1.25f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_vely_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.predictor_tau_m", ParamType::FLOAT, &smc_pos_asta_vely_predictor_tau_m, 0.0f, 0.0f, 2.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.predictor_leak_tau", ParamType::FLOAT, &smc_pos_asta_vely_predictor_leak_tau, 0.5f, 0.001f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vel.sp_slew_max", ParamType::FLOAT, &smc_pos_asta_vel_sp_slew_max, 0.0f, 0.0f, 100.0f, &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by

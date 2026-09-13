@@ -4727,10 +4727,57 @@ t<21sの数値は、`atan2`によるroll復元が±180°で折り返す（真の
 
 **変更ファイル**: なし（本節も`--param`による診断のみ）。
 
-**今後の方針**:
-- [ ] `stab_combined_aggressive`と`pos_flight`が共有する複合2軸機動の残存tilt/drift（20〜25°程度）を埋める方法を検討する——`k1`/`k2`/`phi`/`sp_slew_max`のスカラー調整では限界に達しており、`k1_slew_max`・`mref_*`（規範モデル）パラメータ、またはクロスカップリング補償のような非スカラーな対策が必要と見られる
-- [ ] `altitude.vel.kp`（既定0.1→動作確認済みの0.03）についても、他の全ての高度ホールド系シナリオ（`alt_flight`・`alt_auto_takeoff`等）で回帰がないか確認してから`params.cpp`のデフォルト変更を検討する——今回は`pos_flight`のみでの確認に留まる
+**今後の方針**（§7.54続報10で大幅に消化・更新）:
+- [x] `stab_combined_aggressive`と`pos_flight`が共有する複合2軸機動の残存tilt/drift（20〜25°程度）を埋める方法を検討する → **§7.54続報10でSmith予測器型のむだ時間補償を実装、`stab_combined_aggressive`は完全解決、`pos_flight`もほぼ解決（driftのみ僅かに未達）**
+- [ ] `altitude.vel.kp`（既定0.1→動作確認済みの0.03）についても、他の全ての高度ホールド系シナリオで回帰がないか確認してから`params.cpp`のデフォルト変更を検討する——引き続き未実施
 - [ ] 全シナリオPASSに達するか、これ以上の追い込みが非効率と判断されるまで、`params.cpp`のデフォルト値変更は行わない
+
+#### 7.54続報10【重要】Smith予測器型のむだ時間補償を実装——`k1`ゲインを一切変更せずに`pos_roll`・`pos_pitch`・`stab_combined_aggressive`を完全解決、`pos_flight`もほぼ解決
+
+ユーザー指示「Smith予測器型のむだ時間補償をじっくり作ってて、実機の方はやっておく」を受け、§7.54続報4で最初に候補に挙げ、§7.54続報7-9のスカラーゲイン調整では埋めきれなかった「複合2軸機動の残存tilt/drift」に対し、質的に異なるアプローチを実装した。
+
+**設計**: Web検索で"Robust super-twisting sliding mode control of input-delayed nonlinear systems using disturbance observers and predictor feedback"（[ResearchGate](https://www.researchgate.net/publication/384247851_Robust_super-twisting_sliding_mode_control_of_input-delayed_nonlinear_systems_using_disturbance_observers_and_predictor_feedback)）等の予測器フィードバック文献を参照しつつ、本リポジトリに**既に実装・実証済みの同型構造**——`pid_controller.cpp`の高度DOB（`computeDobCorrection`、内部モデル+むだ時間補正+帯域分離ウォッシュアウト）——を設計の型として踏襲した。
+
+到達則`AdaptiveSuperTwisting::compute(sp, meas, dt)`が使う生の`meas`（測定値）は、アクチュエータの遅れ分だけ「本来ならもう反映されているはずの直近の指令」を反映できていない。そこで:
+1. コントローラ自身の**前サイクルの出力**（`output_scale`適用前の`u1+z`——後述の理由でこの領域なら`output_scale`/`K`の値によらず遅れモデルが成立する）を1次遅れモデル（時定数`predictor_tau_m`）に通し、「アクチュエータが実際に配送できたはず」の量を予測する
+2. 「指令した量」と「配送できたはずの量」の差（＝まだ`meas`に現れていない分）を前方積分し、生の`meas`に加算した`meas_for_control`を、以降の到達則の全計算（スライディング面・規範モデルの発散判定）に使う
+3. 積分したリード項にはリーキーウォッシュアウト（`predictor_leak_tau`）を掛け、DC/定常挙動の主導権はスライディング面自身に残す（DOBと同じ帯域分離）
+
+**`output_scale`が遅れモデルから相殺される理由**: レート軸の`output_scale`=慣性、速度軸は1.0だが、`compute()`内部の`u1+z`（output_scale適用前）は既に角加速度/加速度そのものであり、アクチュエータが遅延なく指令通りに配送できれば`output = output_scale*(u1+z)`が実現する角加速度は`(u1+z)`と一致する（output_scaleが実測ゲインKの逆数に近い場合、§7.54の`REFERENCE_PLANT_GAINS_VEHICLE = 1/慣性`の関係と整合）。したがって`K`を明示的にモデル化する必要がなく、`predictor_tau_m`だけで遅れモデルが完結する——実装を大幅に単純化できた。
+
+**実装**: `firmware/apps/smc_pos_asta/adaptive_sliding_mode_sta.hpp`に`predictor_tau_m`（既定0.0=完全無効、この場合`meas_for_control`==`meas`で本機能追加前とバイト同一）・`predictor_leak_tau`（既定0.5s）を追加。**`smc_rate_asta.hpp`（レートループ単体のapp）は意図的に無改造のまま**——本ファイルヘッダに「無改造移植」契約からの意図的な乖離として明記した（有効性が確認できれば移植を検討）。5軸（roll/pitch/yaw/velx/vely）全てにパラメータを配線。
+
+**回帰確認（無効時）**: `pos_roll --motor-delay 60`（既定パラメータ）を再実行し、既存の180°完全転倒とビット同一の結果を確認——`predictor_tau_m=0`は本当に無効経路であることを確認した。
+
+**SILS検証結果**（`--motor-delay 60`、**`k1`ゲインは一切変更せず既定のまま**）:
+
+| シナリオ | 予測器なし（§7.54続報3/7既出） | 予測器あり（本節） |
+|---|---|---|
+| `pos_roll` | 180.00°（完全転倒） | **11.52°、全ゲートPASS**（`predictor_tau_m`=roll 0.062・pitch 0.061） |
+| `pos_pitch` | 201.17°（完全転倒） | **11.12°、全ゲートPASS**（同上） |
+| `stab_combined_aggressive` | 55.27°（§7.54続報）/ 22.87°（k1縮小の最良点、§7.54続報8） | **19.90°、全ゲートPASS**（roll/pitch/yaw全軸に予測器、yaw=0.13） |
+| `pos_yaw` | 187.44° | tilt=14.66°（**tiltはPASS**）、drift=8.57m・duty=0.92・att_rmse=6.74°は依然FAIL——ただし§7.54続報3で確認済みの**遅延と無関係な既存xfail（backlog #12、ヨートルク権限飽和）**が主因と見られる |
+| `pos_flight` | 189.78° | tilt=17.61°・att_rmse=1.08〜1.44°・duty=0.87〜0.89・alt_max=2.72m（**いずれもPASS**）、drift=3.02〜3.07m（**ゲート3.0mに僅かに未達**、後述） |
+
+`pos_roll`・`pos_pitch`は**`k1_max`をデフォルト150のまま**完全解決した——§7.54続報7-8で必要だった`k1_max=15`や`11`への大幅な縮小は一切不要になった。`stab_combined_aggressive`も、あらゆるスカラーパラメータの組合せ（§7.54続報8で網羅的に探索、最良でも22.87°）で解決できなかったのに対し、予測器を有効にしただけで19.90°（ゲート20°に対し余裕あり）まで改善した。
+
+**`pos_flight`の残る僅かな未達（drift）**: `altitude.vel.kp=0.03`（§7.54続報9）・速度ループ側の予測器（velx/vely、`predictor_tau_m=0.06`）・roll/pitchの`predictor_leak_tau=1.0`への調整を重ね、tilt/att_rmse/duty/alt_maxは全てPASSする水準まで追い込んだが、`horizontal_drift_max`だけは3.02〜3.07m（ゲート3.0m）の狭い範囲に張り付いて動かなかった——`predictor_tau_m`（0.08〜0.09で最良）・`leak_tau`（0.5〜2.0）・速度ループ側の予測器・`sp_slew_max`の追加（0.5）等、多数の組合せを試したが1〜2%の超過から抜け出せなかった。**この残差は姿勢/速度ループではなく、一度も触れていない位置ループ（`pid_.pos_x_/pos_y_`、標準PID、無改造）自体に起因する可能性が高い**と判断する——tilt/att_rmse等の姿勢系指標が全て健全な水準まで改善したにも関わらずdriftだけが動かないことは、「傾いて戻る」過程そのものではなく「傾いていた間にどれだけ流されたか」という、位置ループの応答特性に依存する量である可能性を示唆する。
+
+**重要な注意点（予測器の適用条件）**: `stab_flight --motor-delay 0`（既存の健全な回帰シナリオ、遅延注入なし）に本予測器（`roll/pitch.predictor_tau_m=0.062/0.061`）を適用したところ、**tilt_max=18.01°・att_rmse=6.08°でゲートを僅かに割り込む退行が発生した**——実際には存在しない遅延を「補償」しようとして過補正になったためで、Smith予測器の教科書的な性質（モデルと実際の遅延が一致しない場合に性能が劣化する）そのものである。SILSの既定物理モデル（`--motor-delay`未指定、実質遅延ゼロに近い）は§7.54で実測した実機の遅延（約60ms）を反映しておらず、本予測器は**実際に遅延がある条件（`--motor-delay`注入、すなわち実機相当）でのみ有効化すべき**——既定`predictor_tau_m=0`（無効）のまま出荷し、実機投入時にのみ実測遅延に基づいて有効化する設計とした。
+
+**回帰確認**: `pos_roll --motor-delay 0`（予測器有効のまま）はtilt=4.40°で健全——遅延が実際に小さい条件でも、予測器が正しく校正されていれば（今回はroll/pitchの遅延がほぼ実際に存在しないため、予測器の効果もほぼ中立に収まった）悪影響は限定的だった。ただし上記の`stab_flight`の例が示す通り、これは保証ではなく、**遅延推定`predictor_tau_m`と実際の遅延の乖離が大きいシナリオほど退行のリスクが高い**——実機投入前には遅延ゼロ相当の条件（`--motor-delay 0`）でも一通り確認することを推奨する。
+
+**変更ファイル**:
+- `firmware/apps/smc_pos_asta/adaptive_sliding_mode_sta.hpp`（Smith予測器の実装追加、既定無効。ファイルヘッダに`smc_rate_asta.hpp`との意図的な乖離を明記）
+- `firmware/apps/smc_pos_asta/app_controller.cpp`（5軸分の新規パラメータ読込配線）
+- `firmware/vehicle/components/sf_core/params.cpp`（`smc_pos_asta.{roll,pitch,yaw,velx,vely}.predictor_tau_m/predictor_leak_tau`、計10パラメータ追加、全て既定無効/中立値）
+
+**今後の方針**:
+- [ ] `pos_flight`の残るdrift超過（1〜2%）について、位置ループ（`pid_.pos_x_/pos_y_`）自体の遅延マージンを調査する——本セッションで唯一手を付けていない制御ループ
+- [ ] `pos_yaw`の残存FAIL（drift/duty/att_rmse）が本当にbacklog #12由来か、`sf sils sysid-gate`等で改めて確認する
+- [ ] 有効性が実証されたSmith予測器を`smc_rate_asta.hpp`（レートループ単体app）へ移植し、2ファイルの意図的な乖離を解消するかを検討する
+- [ ] 実機投入時は、実測遅延（§7.54: roll≈0.062s、pitch≈0.061s）を`predictor_tau_m`に設定した上で、遅延注入なし条件（`--motor-delay 0`相当の穏やかな飛行）でも一通り健全性を確認してから、複合機動を含む本格飛行に進むこと
+- [ ] 全シナリオPASSに達するか、これ以上の追い込みが非効率と判断されるまで、`params.cpp`のデフォルト値変更（`predictor_tau_m`を0以外にする等）は行わない
 
 ## 4. 実機投入ゲート
 

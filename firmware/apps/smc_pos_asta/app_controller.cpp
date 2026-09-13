@@ -126,6 +126,8 @@ void AppController::loadRateSmcParams()
     sf::params::get_float("smc_pos_asta.roll.lambda_i",   smc_roll_.lambda_i);
     sf::params::get_float("smc_pos_asta.roll.e_reset",    smc_roll_.e_reset);
     sf::params::get_float("smc_pos_asta.roll.z_leak_tau", smc_roll_.z_leak_tau);
+    sf::params::get_float("smc_pos_asta.roll.predictor_tau_m",    smc_roll_.predictor_tau_m);
+    sf::params::get_float("smc_pos_asta.roll.predictor_leak_tau", smc_roll_.predictor_leak_tau);
 
     sf::params::get_float("smc_pos_asta.pitch.k1_init",    smc_pitch_.k1_init);
     sf::params::get_float("smc_pos_asta.pitch.k1_min",     smc_pitch_.k1_min);
@@ -146,6 +148,8 @@ void AppController::loadRateSmcParams()
     sf::params::get_float("smc_pos_asta.pitch.lambda_i",   smc_pitch_.lambda_i);
     sf::params::get_float("smc_pos_asta.pitch.e_reset",    smc_pitch_.e_reset);
     sf::params::get_float("smc_pos_asta.pitch.z_leak_tau", smc_pitch_.z_leak_tau);
+    sf::params::get_float("smc_pos_asta.pitch.predictor_tau_m",    smc_pitch_.predictor_tau_m);
+    sf::params::get_float("smc_pos_asta.pitch.predictor_leak_tau", smc_pitch_.predictor_leak_tau);
 
     sf::params::get_float("smc_pos_asta.yaw.k1_init",    smc_yaw_.k1_init);
     sf::params::get_float("smc_pos_asta.yaw.k1_min",     smc_yaw_.k1_min);
@@ -166,6 +170,8 @@ void AppController::loadRateSmcParams()
     sf::params::get_float("smc_pos_asta.yaw.lambda_i",   smc_yaw_.lambda_i);
     sf::params::get_float("smc_pos_asta.yaw.e_reset",    smc_yaw_.e_reset);
     sf::params::get_float("smc_pos_asta.yaw.z_leak_tau", smc_yaw_.z_leak_tau);
+    sf::params::get_float("smc_pos_asta.yaw.predictor_tau_m",    smc_yaw_.predictor_tau_m);
+    sf::params::get_float("smc_pos_asta.yaw.predictor_leak_tau", smc_yaw_.predictor_leak_tau);
 
     // Same physical torque ceiling the PID rate loop uses -- see
     // firmware/apps/smc_pos_sta/app_controller.cpp's loadRateSmcParams().
@@ -198,6 +204,8 @@ void AppController::loadVelSmcParams()
     sf::params::get_float("smc_pos_asta.velx.lambda_i",   smc_vel_x_.lambda_i);
     sf::params::get_float("smc_pos_asta.velx.e_reset",    smc_vel_x_.e_reset);
     sf::params::get_float("smc_pos_asta.velx.z_leak_tau", smc_vel_x_.z_leak_tau);
+    sf::params::get_float("smc_pos_asta.velx.predictor_tau_m",    smc_vel_x_.predictor_tau_m);
+    sf::params::get_float("smc_pos_asta.velx.predictor_leak_tau", smc_vel_x_.predictor_leak_tau);
 
     sf::params::get_float("smc_pos_asta.vely.k1_init",    smc_vel_y_.k1_init);
     sf::params::get_float("smc_pos_asta.vely.k1_min",     smc_vel_y_.k1_min);
@@ -218,6 +226,8 @@ void AppController::loadVelSmcParams()
     sf::params::get_float("smc_pos_asta.vely.lambda_i",   smc_vel_y_.lambda_i);
     sf::params::get_float("smc_pos_asta.vely.e_reset",    smc_vel_y_.e_reset);
     sf::params::get_float("smc_pos_asta.vely.z_leak_tau", smc_vel_y_.z_leak_tau);
+    sf::params::get_float("smc_pos_asta.vely.predictor_tau_m",    smc_vel_y_.predictor_tau_m);
+    sf::params::get_float("smc_pos_asta.vely.predictor_leak_tau", smc_vel_y_.predictor_leak_tau);
 
     // Same physical acceleration ceiling PidController's vel_x_/vel_y_ used
     // before being overridden -- see firmware/apps/smc_pos_sta/
