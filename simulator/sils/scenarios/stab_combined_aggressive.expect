@@ -35,6 +35,28 @@ order "Takeoff complete" "DISARM accepted"
 # att_rmse=3.11/tilt=15.43 -- 厳しい入力でもどちらも十分に有界。下のゲートは
 # 弱い方（SMC）の基準値に対して実質的な余裕を持たせた値とし、当初の緩い
 # 仮置き値（8.0/25.0）から締め直した。
-metric att_rmse < 5.0  in 7.5 12.7   # bounded tracking through a fast combined/reversing sequence (SMC baseline 3.11 + margin; matches pos_flight.expect's own att_rmse gate)
-metric tilt_max < 20.0 in 7.5 12.7   # bounded attitude, not a tumble (SMC baseline 15.43 + margin; stab_flight's single-step gate is 18.0, this allows slightly more for genuinely combined 3-axis input)
-metric duty_max < 1.001 in 7.5 12.7  # motors not commanded past the physical ceiling (MAX_DUTY=1.0 + float epsilon, same convention as stab_flight.expect)
+metric att_rmse < 0.08727 in 7.5 12.7  # 5.0 deg  # bounded tracking through a fast combined/reversing sequence (SMC baseline 3.11 + margin; matches pos_flight.expect's own att_rmse gate)
+metric tilt_max < 0.3491  in 7.5 12.7  # 20.0 deg  # bounded attitude, not a tumble (SMC baseline 15.43 + margin; stab_flight's single-step gate is 18.0, this allows slightly more for genuinely combined 3-axis input)
+metric duty_max < 1.001   in 7.5 12.7  # motors not commanded past the physical ceiling (MAX_DUTY=1.0 + float epsilon, same convention as stab_flight.expect)
+# 2026-09-13 fix (docs/plans/smc-rate-loop-plan.md §7.54続報): both metrics
+# above are reported in RADIANS (see e.g. pos_flight.expect's identical
+# convention) -- this file previously compared them against raw DEGREE
+# numbers (5.0 / 20.0), a unit mismatch that made both gates silently
+# vacuous (a radian value is always far below a degrees-scale threshold,
+# so neither could ever fail regardless of real instability). Discovered
+# while injecting --motor-delay up to 60ms: a real 29.65° excursion at
+# 45ms still printed [PASS]. Corrected to radians (0.08727=5.0°,
+# 0.3491=20.0°) matching stab_flight.expect/pos_flight.expect's own
+# convention. Re-verified after the fix: 0ms/15ms motor-delay (existing
+# default regression) still PASS both gates; 45ms/60ms now correctly FAIL
+# tilt_max as they should.
+# 2026-09-13修正（docs/plans/smc-rate-loop-plan.md §7.54続報）: 上記2指標は
+# 共にラジアンで報告される（pos_flight.expect等と同じ規約）——本ファイルは
+# 従来これらを生の度数（5.0/20.0）と比較しており、単位不整合により両ゲート
+# とも実質無効化していた（ラジアン値は度数スケールの閾値を常に大きく下回る
+# ため、実際の不安定化があっても決して発火しない）。`--motor-delay`を最大
+# 60msまで注入する検証中に発見（45msで実際は29.65°の逸脱があったが
+# [PASS]と表示されていた）。ラジアンへ修正（0.08727=5.0°、0.3491=20.0°、
+# stab_flight.expect/pos_flight.expectと同じ規約）。修正後に再検証済み:
+# 0ms/15ms（既存デフォルト回帰）は両ゲートとも引き続きPASS、45ms/60msは
+# tilt_maxが正しくFAILするようになった。

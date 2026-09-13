@@ -1565,6 +1565,41 @@ def _load_axis_data(
             ctrl_output_available = True
             ctrl_output_torque = candidate
 
+    # Apply time range filter FIRST, then crash-detect only within it
+    # (2026-09-13 fix, docs/plans/smc-rate-loop-plan.md §7.54/§7.54続報:
+    # this used to run crash detection over the WHOLE bundle before
+    # applying --time-range, so a bundle with an early anomaly followed by
+    # additional healthy flight segments could never have those later
+    # segments identified no matter what --time-range was given -- the
+    # crash truncation silently discarded everything from the first
+    # anomaly to the end of the bundle before the requested window was
+    # even considered. Filtering first means a window that excludes the
+    # anomaly sees no truncation at all, and a window that includes it
+    # still gets truncated at the right point).
+    # 時間範囲フィルタを先に適用し、その範囲内でのみクラッシュ検知する
+    # （2026-09-13修正、docs/plans/smc-rate-loop-plan.md §7.54/§7.54続報:
+    # 従来は`--time-range`適用より先にログ全体に対してクラッシュ検知を
+    # 行っており、早期の異常の後に別の健全な飛行区間が続く一式ログでは、
+    # `--time-range`を何と指定しても後続区間を同定できなかった——クラッシュ
+    # 検知が要求された範囲を考慮する前に、最初の異常から末尾までを問答無用で
+    # 切り捨てていたため。先にフィルタすれば、異常を含まない範囲は
+    # トランケーションの影響を全く受けず、異常を含む範囲は従来通り正しい
+    # 位置で切り捨てられる）。
+    # 時間範囲フィルタを適用
+    if time_range is not None:
+        t_start, t_end = time_range
+        mask = (time_s >= t_start) & (time_s <= t_end)
+        time_s = time_s[mask]
+        target = target[mask]
+        gyro = gyro[mask]
+        throttle = throttle[mask]
+        if duty_diff is not None:
+            duty_diff = duty_diff[mask]
+        if actual_torque_diag is not None:
+            actual_torque_diag = actual_torque_diag[mask]
+        if ctrl_output_torque is not None:
+            ctrl_output_torque = ctrl_output_torque[mask]
+
     # Automatic crash/anomaly truncation (2026-09-10, real lesson_07 test
     # flights): a violent tumble/impact spikes |gyro| far beyond anything a
     # controlled flight -- even an aggressive P-control transient -- ever
@@ -1574,13 +1609,14 @@ def _load_axis_data(
     # segment(s) straddle it (this is exactly what was previously found and
     # worked around by hand: test7_2.csv, manually restricting to t<21.5s --
     # see "実習7 同定ログ比較" artifact). Automate that: truncate everything
-    # from the FIRST implausible sample onward. _GYRO_CRASH_MAX_RAD_S=10 is
-    # deliberately generous (BMI270 noise floor here is ~0.003 rad/s, so
-    # this is >3000-sigma -- zero risk of tripping on sensor noise) and
-    # empirically robust: on the real crash this was calibrated against, the
-    # first exceedance lands at the SAME instant (t=22.69s, all 3 axes) for
-    # any threshold from 3 to 12 rad/s, so the exact cutoff value is not
-    # sensitive within that whole range.
+    # from the FIRST implausible sample onward (within the time_range window
+    # applied above). _GYRO_CRASH_MAX_RAD_S=10 is deliberately generous
+    # (BMI270 noise floor here is ~0.003 rad/s, so this is >3000-sigma --
+    # zero risk of tripping on sensor noise) and empirically robust: on the
+    # real crash this was calibrated against, the first exceedance lands at
+    # the SAME instant (t=22.69s, all 3 axes) for any threshold from 3 to
+    # 12 rad/s, so the exact cutoff value is not sensitive within that whole
+    # range.
     # 自動クラッシュ/異常検知トランケーション（2026-09-10、実際の実習7
     # テスト飛行）: 激しいタンブル/衝突は |gyro| を制御された飛行（積極的な
     # P制御の過渡応答すら含め）では絶対に出ない大きさまで跳ね上げるが、
@@ -1589,12 +1625,13 @@ def _load_axis_data(
     # 放置すると、クラッシュ区間にまたがるセグメントを静かに汚染する（まさに
     # 以前手作業で見つけて回避した現象 -- test7_2.csv を t<21.5s に手動制限、
     # 「実習7 同定ログ比較」アーティファクト参照）。それを自動化する: 最初に
-    # あり得ない値が出たサンプル以降を全て切り捨てる。_GYRO_CRASH_MAX_RAD_S
-    # =10 は意図的に余裕を持たせてある（ここでのBMI270ノイズ床は
-    # 約0.003rad/sなので、これは3000シグマ超 -- センサノイズで誤発火する
-    # 心配は皆無）上、実証的にも頑健（この較正に使った実際のクラッシュでは、
-    # 3〜12 rad/s のどの閾値でも最初の超過は全3軸とも同じ瞬間 t=22.69s に
-    # 発生し、この範囲内なら閾値の正確な値に結果は左右されない）。
+    # あり得ない値が出たサンプル以降を全て切り捨てる（上で適用した
+    # time_range範囲内で）。_GYRO_CRASH_MAX_RAD_S=10 は意図的に余裕を
+    # 持たせてある（ここでのBMI270ノイズ床は約0.003rad/sなので、これは
+    # 3000シグマ超 -- センサノイズで誤発火する心配は皆無）上、実証的にも
+    # 頑健（この較正に使った実際のクラッシュでは、3〜12 rad/s のどの閾値でも
+    # 最初の超過は全3軸とも同じ瞬間 t=22.69s に発生し、この範囲内なら
+    # 閾値の正確な値に結果は左右されない）。
     crash_truncated_at: Optional[float] = None
     anomaly = np.abs(gyro) > _GYRO_CRASH_MAX_RAD_S
     if np.any(anomaly):
@@ -1610,22 +1647,6 @@ def _load_axis_data(
             actual_torque_diag = actual_torque_diag[:crash_idx]
         if ctrl_output_torque is not None:
             ctrl_output_torque = ctrl_output_torque[:crash_idx]
-
-    # Apply time range filter
-    # 時間範囲フィルタを適用
-    if time_range is not None:
-        t_start, t_end = time_range
-        mask = (time_s >= t_start) & (time_s <= t_end)
-        time_s = time_s[mask]
-        target = target[mask]
-        gyro = gyro[mask]
-        throttle = throttle[mask]
-        if duty_diff is not None:
-            duty_diff = duty_diff[mask]
-        if actual_torque_diag is not None:
-            actual_torque_diag = actual_torque_diag[mask]
-        if ctrl_output_torque is not None:
-            ctrl_output_torque = ctrl_output_torque[mask]
 
     return (time_s, target, gyro, throttle, dt, duty_diff, duty_quality,
             duty_reason, actual_torque_diag, ctrl_output_torque, ctrl_output_available,
