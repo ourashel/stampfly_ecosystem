@@ -50,6 +50,19 @@
 | [`firmware/vehicle/docs/architecture.md`](firmware/vehicle/docs/architecture.md) | アーキテクチャ不変条件（INV）・ミキサー差し替え口の設計提案 |
 | [`firmware/apps/smc_rate_asta/`](firmware/apps/smc_rate_asta/) | `smc_rate_asta`アプリのソース一式 |
 
+## 追記: §7.54 Smith予測器型むだ時間補償（参考文献）
+
+本README作成後の後続セッションで、`smc_pos_asta`（位置/速度ループも適応STA化した拡張版アプリ）を対象に、
+実機同定した実際のレートループ遅延（約60ms、設計時仮定の20msの約3倍）に対する安定余裕不足を、
+到達則ゲインの縮小ではなくSmith予測器型のむだ時間補償で解決した（[`docs/plans/smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md) §7.54〜§7.54続報13）。
+設計にあたり参照した文献:
+
+| 文献 | 本計画での使用箇所 |
+|---|---|
+| Zhang, Fridman et al., "Robust super-twisting sliding mode control of input-delayed nonlinear systems using disturbance observers and predictor feedback" ([ResearchGate](https://www.researchgate.net/publication/384247851_Robust_super-twisting_sliding_mode_control_of_input-delayed_nonlinear_systems_using_disturbance_observers_and_predictor_feedback)) | むだ時間系STAへの予測器フィードバックの一般的な枠組み |
+| "Design of super-twisting control gains: A describing function based methodology," Automatica ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0005109818304977)) | 記述関数法によるSTA自励振動の理論的分析——§7.54続報7の理論的支柱 |
+| "Optimal super-twisting algorithm with time delay estimation for robot manipulators based on feedback linearization," Mechatronics ([ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0921889017304803)) | むだ時間推定とSTAの組合せ |
+
 ## 元プロジェクトについて
 
 本リポジトリは教育・研究用ドローン制御プラットフォーム
