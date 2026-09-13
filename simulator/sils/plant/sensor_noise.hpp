@@ -78,8 +78,41 @@ public:
         // した広帯域白色として扱う（読み取りレートの1サンプル rms）。帯域制限（500–667Hz、
         // 400Hz 読みでエイリアシング）は N2 の精緻化で本段では非モデル化。無効時は N0＝byte-identical。
         bool  vib_enable = false;                       ///< N1: throttle vibration on
-        float vib_accel_k[3] = {3.96f, 2.35f, 5.64f};   ///< σ_accel,axis = K·duty² [m/s²]
-        float vib_gyro_k[3]  = {1.08f, 0.83f, 0.15f};   ///< σ_gyro,axis  = K·duty² [rad/s]
+        // vib_accel_k RE-IDENTIFIED (docs/plans/smc-rate-loop-plan.md section 7.45,
+        // 2026-09-13) from the same 3 real hover flights as vib_gyro_k below, using
+        // a proper 100-177Hz Butterworth bandpass (matching N2's aliased vibration
+        // band) instead of the crude moving-average high-pass first tried in
+        // section 7.44 -- that first pass leaked real throttle/attitude dynamics
+        // into the estimate and gave implausible values (roll 10.68, pitch 2.62,
+        // yaw 9.10, all HIGHER than the old seed), which were NOT adopted. This
+        // properly band-limited re-fit gives more modest, credible values.
+        // vib_accel_k 再同定（docs/plans/smc-rate-loop-plan.md §7.45、2026-09-13）:
+        // vib_gyro_k（下記）と同じ3本の実機ホバー飛行から、§7.44の粗い移動平均
+        // ハイパスでなく、N2のエイリアシング帯域(100-177Hz)に合わせたButterworth
+        // バンドパスで再同定——§7.44の粗い一次推定は実飛行の動きを拾いすぎて
+        // 非現実的な値（roll 10.68・pitch 2.62・yaw 9.10、いずれも旧値より大きい）
+        // を出しており不採用だった。適切に帯域制限した本再フィットはより穏当で
+        // 信頼できる値になった。
+        float vib_accel_k[3] = {5.31f, 1.56f, 4.66f};   ///< σ_accel,axis = K·duty² [m/s²]
+        // vib_gyro_k RE-IDENTIFIED (docs/plans/smc-rate-loop-plan.md section 7.44,
+        // 2026-09-13) from 3 real hover flights (~56k samples, 5-sigma robust
+        // outlier rejection, least-squares fit through the origin) on the CURRENT
+        // vehicle -- supersedes the old {1.08, 0.83, 0.15} legacy hover02 seed
+        // (simulation-policy.md backlog #8) that this file's own comment above
+        // already suspected was stale. Measured values are 0.61x/~1/5.5x/~1/3.3x
+        // the old ones (roll/pitch/yaw) and are consistent across duty bins and
+        // across all 3 independently-flown sessions. EXPERIMENTAL: only this one
+        // vehicle, one measurement session -- treat as a strong first data point,
+        // not a final calibration.
+        // vib_gyro_k 再同定（docs/plans/smc-rate-loop-plan.md §7.44、2026-09-13）:
+        // 現行機体での実機ホバー飛行3本（約56000サンプル、5σロバスト外れ値除去、
+        // 原点通過の最小二乗フィット）から再同定——本ファイル自身のコメントが既に
+        // 疑っていた旧機hover02由来のシード値{1.08, 0.83, 0.15}（simulation-policy.md
+        // バックログ#8）を置き換える。実測値は旧値の0.61倍/約1/5.5倍/約1/3.3倍
+        // （roll/pitch/yaw）で、duty区間・3本の独立飛行を通じて一貫していた。
+        // 実験的: 1機体・1回の計測セッションのみ——最終較正でなく強い最初の
+        // データ点として扱うこと。
+        float vib_gyro_k[3]  = {0.663f, 0.152f, 0.045f}; ///< σ_gyro,axis  = K·duty² [rad/s]
         // N2 — band-limit the vibration to [f_low,f_high] (motor/prop band, ~500–667 Hz
         // at hover). Real vibration is NOT broadband: it sits near the rotor/blade-pass
         // frequencies, which the firmware's LPF/AAF attenuates — that is WHY filtering
