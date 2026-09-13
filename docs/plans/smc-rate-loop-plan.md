@@ -4476,6 +4476,60 @@ DISARM操作による空中モータカット（自由落下）であり、`smc_
 
 **今後の方針**: 第2段階（他シナリオへのマッピング）・第3段階（原因切り分け、ゲイン再設計）はユーザーの明示的な指示があるまで着手しない。
 
+#### 7.54続報3【重要・安全性】第2段階——`apps/smc_pos_asta`の既存SILS回帰シナリオ27本を`--motor-delay 60`で全数マッピング、崖は`pos_flight`だけでなく`pos_roll/pos_pitch/pos_yaw`の系列全体に及ぶと判明。副産物として`yaw_hold`の遅延と無関係な既存バグも発見
+
+ユーザー選択「第2段階（低リスク・情報収集）」を受け、`.expect`ゲートを持つ既存SILSシナリオのうち飛行力学に関係する25本（pairing/calib/console_cli等の非飛行系・sysid系・workshop系は対象外）を`apps/smc_pos_asta`に対し`--motor-delay 60`（§7.54実測相当）で一括実行し、既に個別検証済みの`stab_combined_aggressive`・`pos_flight`と合わせて計27本の全体像を把握した。ゲイン変更は一切行っていない。
+
+**作業メモ**: バッチ実行用の`.bat`スクリプトで、`for %%S in (...) do ( ... )`ブロック内のecho文に丸括弧`(...)`を含めると、cmd.exeのブロック解析が壊れ変数展開が効かなくなる現象を2回踏んだ（`(motor-delay=0)`のような注記を含めただけで発生）——doブロック内のecho文からは丸括弧を排除するのが安全。
+
+**結果分類**（`apps/smc_pos_asta`、`--motor-delay 60`、noise=off）:
+
+**A. 完全転倒（tilt_max > 150°、遅延起因を確認/濃厚）**
+
+| シナリオ | tilt_max (60ms) | tilt_max (0ms基準) | 判定 |
+|---|---|---|---|
+| `pos_flight`（既出） | 189.8° | 14.5°（健全） | **遅延起因を確認済み** |
+| `pos_roll` | 180.0° | **4.25°（健全、本節で再検証済み）** | **遅延起因を確認済み** |
+| `pos_pitch` | 201.2° | 未再検証（`pos_roll`/`pos_flight`と同系列のため健全と推定） | 遅延起因の可能性濃厚 |
+| `pos_yaw` | 187.4° | 未再検証（同上） | 遅延起因の可能性濃厚 |
+
+`pos_roll`単軸ステップだけでも完全転倒に至ることが判明した——`pos_flight`の「複合ロール+ピッチ」特有の現象ではなく、**POS_HOLD中に大きな水平方向ステップ入力（単軸でも）を与える系列シナリオ全体**が同じ崖を共有している。
+
+**B. 中程度の悪化（転倒はしないが有意に劣化）**
+
+| シナリオ | 内容 | 60msでの値 |
+|---|---|---|
+| `stab_combined_aggressive`（既出） | 複合3軸機動 | tilt=55.3°、DISARM未到達 |
+| `alt_takeoff_steer` | 離陸中の姿勢操作 | tilt=43.5° |
+| `stab_flight` | 単軸ステップ（STABILIZE） | tilt=38.0° |
+| `modeswitch` | ALT_HOLD⇔POS_HOLD切替+ドリフト | drift=11.1m, tilt=38.2°, att_rmse=9.0° |
+| `alt_arm_rollpitch` | ARM中の姿勢操作 | tilt=29.0° |
+| `commloss_land_level` | 通信喪失後の自動着陸+レベリング | 着陸/レベリングが判定窓内に間に合わず（tilt=29.5°、alt=3.15m未着地） |
+| `api_flight` | API自律ミッション（前進→上昇→旋回→着陸） | 旋回・着陸コマンドに到達できず自律シーケンスが停止（tilt=34.6°） |
+| `api_rc` | API RC制御ミッション | 同様にミッション停止（tilt=29.0°） |
+| `acro_flight` | ACROステップ | att_rmse=4.31°（軽微） |
+| `pos_reposition` | POS_HOLD再配置 | 整定精度がわずかに未達（drift=1.08m、ゲート0.25m） |
+
+**C. 遅延と無関係な既存の非互換性/バグ（0ms基準でも同一のFAIL、本節で確認）**
+
+| シナリオ | 0ms基準の結果 | 解釈 |
+|---|---|---|
+| `hover_espnow` | 60msと完全同一のFAIL（'Connected to controller'/'Motors ARMED'等のログ文字列が最初から不在） | `apps/smc_pos_asta`が既定`vehicle`ビルド専用のログ文言に依存するこのシナリオと元々非互換——遅延と無関係 |
+| `crash_refly` | 60msと完全同一のFAIL（再飛行シーケンス後の判定窓が「no flight-log bundle / empty window」） | シナリオ側のタイミング前提と`apps/smc_pos_asta`の実際の挙動が噛み合っていない構造的な問題——遅延と無関係 |
+| `yaw_hold` | **0msでも60msとほぼ同一の完全転倒**（tilt=187.34°、yaw_band=1203°=3回転超、alt_min≈0） | **§7.54の実測遅れとは無関係の、`apps/smc_pos_asta`単体の既存バグ**——遅延ゼロでも既に破綻している。本節で偶然発見した別スレッドの問題であり、独立した調査が必要 |
+
+**D. 健全（PASS、60msでも影響なし）**: `acro_crash_relevel`, `alt_flight`, `alt_auto_takeoff`, `alt_disarm_land`, `alt_disarm_land_steer`, `alt_inflight_switch`, `alt_recenter_gate`, `pos_auto_takeoff`, `modeswitch_rapid`, `commloss`（10本）——いずれも大きな水平ステップやアグレッシブな複合機動を含まない、ゆるやかな遷移・定常ホバー系のシナリオ。
+
+**全体像としての結論**: 崖は単一シナリオの特異点ではなく、**POS_HOLD中に大きな水平ステップ（単軸・複合軸問わず）を要求する系列シナリオ全体**（`pos_roll`/`pos_pitch`/`pos_yaw`/`pos_flight`）が例外なく完全転倒し、それ以外の多くのシナリオ（ATT/ALT系の機敏な機動、API自律ミッション、通信喪失着陸）も転倒はしないが明確に劣化する、という**広範囲かつ二層構造の脆弱性**であることが判明した。一方で単純なホバー・緩やかな遷移系のシナリオは影響を受けない。単一のきれいな法則（例:「POS_HOLDか否か」）には単純化できない——`modeswitch_rapid`（POS_HOLDを経由するが短時間）は健全、`yaw_hold`（ALT_HOLDのみ）は遅延と無関係に元々破綻、という反例がある。
+
+**変更ファイル**: なし（本続報もSILS実行・観測のみ、ゲイン変更なし）。
+
+**今後の方針**:
+- [ ] 第3段階（原因切り分け: ゲイン不足かduty容量不足か、およびゲイン再設計）はユーザーの明示的な指示があるまで着手しない
+- [ ] **【新規・独立】** `yaw_hold`シナリオが`apps/smc_pos_asta`に対し遅延ゼロでも完全転倒する既存バグを次回セッションで別途調査する（本節の実測遅れ同定・SILS再現実験とは無関係の問題）
+- [ ] `hover_espnow`・`crash_refly`は`apps/smc_pos_asta`との非互換性を`.scn`/`.expect`側の前提を精査して解消するか、対象外として`.expect`に明記するかを検討する
+- [ ] `pos_pitch`・`pos_yaw`の`--motor-delay 0`基準健全性は`pos_roll`からの類推に留まり未再検証——次回、時間があれば個別確認する
+
 ## 4. 実機投入ゲート
 
 上記SILS検証手順が全てクリアし、かつ**ユーザーの明示的な判断**を得てから初めて
