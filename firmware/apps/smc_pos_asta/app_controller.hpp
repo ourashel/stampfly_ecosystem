@@ -130,6 +130,32 @@ private:
     /// （output_scaleは既定1.0のまま）。pid_の位置ループ段は無改造。
     sf::app::AdaptiveSuperTwisting smc_vel_x_;
     sf::app::AdaptiveSuperTwisting smc_vel_y_;
+
+    /// Optional slew-rate limit [m/s^2] applied to vx_sp/vy_sp (the
+    /// velocity-loop target handed to smc_vel_x_/smc_vel_y_) BEFORE it
+    /// reaches the STA -- 0 disables it (byte-identical to the pre-existing
+    /// behavior). Added docs/plans/smc-rate-loop-plan.md §7.54続報6: SILS
+    /// found a real-flight-identified rate-loop actuator lag (~60ms,
+    /// §7.54) reproduces a complete tumble in the pos_roll/pitch/yaw/flight
+    /// scenario family (§7.54続報3), and neither raising duty/torque
+    /// capacity nor retuning the STA's own gain resolved it (§7.54続報4) --
+    /// this ramps the STEP the position loop currently hands the STA into a
+    /// ramp instead, so the STA is never asked to react to an instantaneous
+    /// setpoint jump under that added actuator lag. Diagnostic/experimental;
+    /// default OFF.
+    /// vx_sp/vy_sp（速度ループがsmc_vel_x_/smc_vel_y_に渡す目標）に適用する
+    /// 任意のスルーレート制限[m/s^2]——STAに届く前に適用する。0で無効
+    /// （既存動作とバイト同一）。docs/plans/smc-rate-loop-plan.md §7.54続報6で
+    /// 追加: 実機同定したレートループのアクチュエータ遅れ（約60ms、§7.54）を
+    /// SILSに注入すると`pos_roll/pitch/yaw/flight`系列シナリオで完全転倒が
+    /// 再現し（§7.54続報3）、duty/トルク容量を増やしてもSTA自身のゲイン再調整
+    /// でも解決しなかった（§7.54続報4）——本パラメータは位置ループが現在STAに
+    /// 渡している「瞬時ステップ」を「ランプ」に整形し、その遅れの下でSTAが
+    /// 瞬時の目標跳躍に反応させられる状況そのものをなくす。診断・実験用、
+    /// 既定OFF。
+    float vsp_slew_max_ = 0.0f;
+    float vx_sp_limited_ = 0.0f;
+    float vy_sp_limited_ = 0.0f;
 };
 
 }  // namespace sf::app

@@ -18,6 +18,7 @@
 #include "app_controller.hpp"
 #include "params.hpp"
 #include "sf_math.hpp"
+#include <algorithm>  // std::clamp (vsp_slew_max_ rate limiter, §7.54続報6)
 
 namespace sf::app {
 
@@ -64,8 +65,25 @@ void AppController::init()
     pid_.setVelocityLawOverride(
         [this](float vx_sp, float vx, float vy_sp, float vy, float dt,
                float& ax_ned, float& ay_ned) {
-            ax_ned = smc_vel_x_.compute(vx_sp, vx, dt);
-            ay_ned = smc_vel_y_.compute(vy_sp, vy, dt);
+            // Optional slew-rate limit on the STA's own target -- see
+            // vsp_slew_max_'s doc comment (app_controller.hpp) for the
+            // §7.54続報6 rationale. 0 (default) skips this entirely, so the
+            // raw vx_sp/vy_sp reach the STA exactly as before this change.
+            // STA自身の目標へのスルーレート制限（任意）——根拠は
+            // vsp_slew_max_のドキュメントコメント参照（app_controller.hpp、
+            // §7.54続報6）。0（既定）ならこのブロック自体を素通りし、この
+            // 変更前と全く同じ生のvx_sp/vy_spがSTAへ渡る。
+            float vx_target = vx_sp;
+            float vy_target = vy_sp;
+            if (vsp_slew_max_ > 1.0e-9f && dt > 0.0f) {
+                const float step = vsp_slew_max_ * dt;
+                vx_sp_limited_ += std::clamp(vx_sp - vx_sp_limited_, -step, step);
+                vy_sp_limited_ += std::clamp(vy_sp - vy_sp_limited_, -step, step);
+                vx_target = vx_sp_limited_;
+                vy_target = vy_sp_limited_;
+            }
+            ax_ned = smc_vel_x_.compute(vx_target, vx, dt);
+            ay_ned = smc_vel_y_.compute(vy_target, vy, dt);
         });
 }
 
@@ -210,6 +228,12 @@ void AppController::loadVelSmcParams()
     const float output_limit = sf::math::kGravity * kMaxPosTilt;
     smc_vel_x_.output_limit = output_limit;
     smc_vel_y_.output_limit = output_limit;
+
+    // §7.54続報6 diagnostic/experimental slew-rate limiter -- see
+    // vsp_slew_max_'s doc comment (app_controller.hpp). Default 0 (OFF).
+    // §7.54続報6の診断・実験用スルーレート制限——根拠はvsp_slew_max_の
+    // ドキュメントコメント参照（app_controller.hpp）。既定0（OFF）。
+    sf::params::get_float("smc_pos_asta.vel.sp_slew_max", vsp_slew_max_);
 }
 
 void AppController::reset()
@@ -220,6 +244,8 @@ void AppController::reset()
     smc_yaw_.reset();
     smc_vel_x_.reset();
     smc_vel_y_.reset();
+    vx_sp_limited_ = 0.0f;
+    vy_sp_limited_ = 0.0f;
 }
 
 void AppController::onModeChange(sf::FlightMode new_mode)
@@ -255,6 +281,17 @@ void AppController::onModeChange(sf::FlightMode new_mode)
     // ——smc_pos_sta/smc_rate_astaと同じ設計意図（モード非依存の最内周ループ）。
     smc_vel_x_.reset();
     smc_vel_y_.reset();
+    // The slew-limiter's internal state is a target-tracking filter, not a
+    // controller-internal integral/adaptation state -- reset it alongside
+    // the STA it feeds for the same reason (a stale limited-target value
+    // from before the mode boundary would otherwise force an artificial
+    // ramp toward the freshly-recaptured target).
+    // スルーレート制限器の内部状態は目標追従フィルタであり制御則内部の
+    // 積分/適応状態ではないが、それが供給するSTAと同じ理由でモード境界越しに
+    // リセットする（さもないと、境界前の古い制限済み目標値から新たに
+    // 再捕捉された目標へ向かう不自然なランプが生じる）。
+    vx_sp_limited_ = 0.0f;
+    vy_sp_limited_ = 0.0f;
     pid_.onModeChange(new_mode);
 }
 

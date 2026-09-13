@@ -1028,6 +1028,16 @@ namespace param_vars {
     float smc_pos_asta_vely_e_reset = 1.25f;
     float smc_pos_asta_vely_z_leak_tau = 0.5f;
 
+    // Diagnostic/experimental slew-rate limit [m/s^2] on vx_sp/vy_sp before
+    // it reaches smc_vel_x_/smc_vel_y_ -- see AppController::vsp_slew_max_'s
+    // doc comment (firmware/apps/smc_pos_asta/app_controller.hpp) for the
+    // §7.54続報6 rationale. 0 = disabled (byte-identical clean path).
+    // vx_sp/vy_spがsmc_vel_x_/smc_vel_y_へ届く前に適用する診断・実験用
+    // スルーレート制限[m/s^2]——根拠はAppController::vsp_slew_max_の
+    // ドキュメントコメント参照（firmware/apps/smc_pos_asta/
+    // app_controller.hpp、§7.54続報6）。0=無効（既存動作とバイト同一）。
+    float smc_pos_asta_vel_sp_slew_max = 0.0f;
+
     // Adaptive-gain super-twisting rate-loop gains (firmware/apps/
     // smc_rate_asta, AdaptiveSuperTwistingRate) -- see smc_rate_asta.hpp
     // for the control law and docs/plans/smc-rate-loop-plan.md §7.31 for
@@ -2055,6 +2065,7 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.vely.lambda_i", ParamType::FLOAT, &smc_pos_asta_vely_lambda_i, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.e_reset", ParamType::FLOAT, &smc_pos_asta_vely_e_reset, 1.25f, 0.0f, 5.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_vely_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.vel.sp_slew_max", ParamType::FLOAT, &smc_pos_asta_vel_sp_slew_max, 0.0f, 0.0f, 100.0f, &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
     // the default vehicle/smc_rate builds.
