@@ -229,6 +229,9 @@ void AppController::loadVelSmcParams()
     sf::params::get_float("smc_pos_asta.velx.z_leak_tau", smc_vel_x_.z_leak_tau);
     sf::params::get_float("smc_pos_asta.velx.predictor_tau_m",    smc_vel_x_.predictor_tau_m);
     sf::params::get_float("smc_pos_asta.velx.predictor_leak_tau", smc_vel_x_.predictor_leak_tau);
+    // §7.57 opt-in structural redesign (default 0=legacy bang-bang/envelope).
+    sf::params::get_float("smc_pos_asta.velx.prop_adapt_gain",    smc_vel_x_.prop_adapt_gain);
+    sf::params::get_float("smc_pos_asta.velx.energy_trend_floor", smc_vel_x_.energy_trend_floor);
 
     sf::params::get_float("smc_pos_asta.vely.k1_init",    smc_vel_y_.k1_init);
     sf::params::get_float("smc_pos_asta.vely.k1_min",     smc_vel_y_.k1_min);
@@ -251,6 +254,9 @@ void AppController::loadVelSmcParams()
     sf::params::get_float("smc_pos_asta.vely.z_leak_tau", smc_vel_y_.z_leak_tau);
     sf::params::get_float("smc_pos_asta.vely.predictor_tau_m",    smc_vel_y_.predictor_tau_m);
     sf::params::get_float("smc_pos_asta.vely.predictor_leak_tau", smc_vel_y_.predictor_leak_tau);
+    // §7.57 opt-in structural redesign (default 0=legacy bang-bang/envelope).
+    sf::params::get_float("smc_pos_asta.vely.prop_adapt_gain",    smc_vel_y_.prop_adapt_gain);
+    sf::params::get_float("smc_pos_asta.vely.energy_trend_floor", smc_vel_y_.energy_trend_floor);
 
     // Same physical acceleration ceiling PidController's vel_x_/vel_y_ used
     // before being overridden -- see firmware/apps/smc_pos_sta/

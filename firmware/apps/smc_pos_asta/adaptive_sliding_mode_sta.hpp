@@ -178,6 +178,36 @@ struct AdaptiveSuperTwisting {
 
     float k1_slew_max = 1000.0f;
 
+    // --- Structural redesign, opt-in (docs/plans/smc-rate-loop-plan.md
+    // section 7.57): the bang-bang growth/leak law (+adapt_rate vs
+    // -adapt_rate*leak_ratio, a fixed 1/leak_ratio asymmetry) and the
+    // amplitude-envelope divergence gate (e_model_env - e_model_env_base vs
+    // mref_trend_floor) were identified in section 7.56続報2/5 as the
+    // mechanism behind k1 self-ratcheting toward k1_max almost permanently
+    // under realistic sensor noise (section 7.56続報5) -- ANY |s_lpf| excess
+    // over dead_band, however small (noise-sized), grows k1 at the SAME
+    // fixed rate as a genuine large disturbance. These two fields make that
+    // adaptation PROPORTIONAL to magnitude instead of a fixed rate, so a
+    // noise-sized excess produces a proportionally small nudge instead of
+    // the same rate as a real disturbance. Both default 0 = disabled (falls
+    // back to the EXACT bang-bang/envelope logic above, byte-identical to
+    // this feature not existing), matching this file's existing opt-in
+    // convention (predictor_tau_m, k1_slew_max, ...).
+    // 構造再設計、任意機能（docs/plans/smc-rate-loop-plan.md §7.57）:
+    // bang-bang型の成長/漏洩則（+adapt_rate 対 -adapt_rate*leak_ratio、
+    // 固定の1/leak_ratio非対称）と振幅エンベロープ型の発散ゲート
+    // （e_model_env - e_model_env_base 対 mref_trend_floor）が、実機相当の
+    // センサノイズ下でk1がほぼ常時k1_maxへ自己ラチェットする機序と
+    // §7.56続報2/5で特定された——dead_bandをどれだけ超えたか（ノイズ級の
+    // 僅かな超過でも）に関わらず、真の大外乱と同じ固定速度でk1が成長して
+    // しまう。この2フィールドはこの適応を固定速度でなく大きさに比例させる
+    // ——ノイズ級の超過は比例的に小さな押し上げだけになる。既定0=無効
+    // （上記の厳密なbang-bang/エンベロープ判定にフォールバック、本機能が
+    // 存在しない場合とバイト同一）、本ファイル既存の任意機能の慣習
+    // （predictor_tau_m・k1_slew_max等）に合わせた。
+    float prop_adapt_gain   = 0.0f;   // [1/s per unit of |s_lpf|-dead_band] proportional k1_dot gain; 0=bang-bang (legacy)
+    float energy_trend_floor = 0.0f;  // divergence threshold on e_model^2 envelope trend (same time constants as mref_env_tau/base_tau); 0=amplitude-envelope gate (legacy)
+
     // --- Same-as-fixed-STA parameters / 固定STAと同じパラメータ ---
     float phi      = 0.02f;
     float lambda_i = 0;
@@ -212,6 +242,16 @@ struct AdaptiveSuperTwisting {
     float e_model_env      = 0;
     float e_model_env_base = 0;
     float mref_dwell_timer = 0;
+
+    // Energy-envelope state for the opt-in energy_trend_floor divergence gate
+    // (section 7.57) -- tracks e_model^2 (power) instead of |e_model|
+    // (amplitude). Always computed (cheap) so toggling energy_trend_floor at
+    // runtime needs no state reset. energy_trend_floorの任意発散ゲート
+    // （§7.57）用のエネルギーエンベロープ状態——|e_model|でなくe_model^2
+    // （パワー）を追跡。常時計算（安価）のため実行時にenergy_trend_floorを
+    // 切り替えても状態リセット不要。
+    float e_energy_fast = 0;
+    float e_energy_slow = 0;
 
     // Smith-predictor state (unused / exactly zero when predictor_tau_m==0).
     // Smith予測器の状態（predictor_tau_m==0のときは未使用・常にゼロ）。
@@ -289,7 +329,28 @@ struct AdaptiveSuperTwisting {
             const float alpha_base = dt / (mref_env_base_tau + dt);
             e_model_env_base += alpha_base * (e_model_env - e_model_env_base);
         }
-        const bool growing = (e_model_env - e_model_env_base) > mref_trend_floor;
+        // Energy-envelope tracking (section 7.57, opt-in via energy_trend_floor
+        // below) -- same two time constants as the amplitude envelope above, but
+        // on e_model^2 (power) instead of |e_model|. Always updated (cheap),
+        // parallel to the legacy envelope, so switching energy_trend_floor at
+        // runtime needs no reset. / エネルギーエンベロープ追跡（§7.57、下の
+        // energy_trend_floor経由で任意）——上の振幅エンベロープと同じ2つの
+        // 時定数だが、|e_model|でなくe_model^2（パワー）に対して。常時更新
+        // （安価）、実行時切替に状態リセット不要。
+        if (dt > 0) {
+            const float e_model_sq = e_model * e_model;
+            const float alpha_env = dt / (mref_env_tau + dt);
+            e_energy_fast += alpha_env * (e_model_sq - e_energy_fast);
+            const float alpha_base = dt / (mref_env_base_tau + dt);
+            e_energy_slow += alpha_base * (e_energy_fast - e_energy_slow);
+        }
+        // Divergence gate: energy-integral form when opted in (energy_trend_floor
+        // > 0), else the legacy amplitude-envelope form (byte-identical to this
+        // feature not existing). / 発散ゲート: energy_trend_floor>0ならエネルギー
+        // 積分形、そうでなければ既存の振幅エンベロープ形（本機能非存在とバイト同一）。
+        const bool growing = (energy_trend_floor > 1.0e-9f)
+            ? ((e_energy_fast - e_energy_slow) > energy_trend_floor)
+            : ((e_model_env - e_model_env_base) > mref_trend_floor);
         if (dt > 0) {
             if (growing) {
                 mref_dwell_timer += dt;
@@ -306,6 +367,18 @@ struct AdaptiveSuperTwisting {
             float k1_dot;
             if (diverging) {
                 k1_dot = -adapt_rate * mref_shrink_ratio;
+            } else if (prop_adapt_gain > 1.0e-9f) {
+                // Proportional growth/leak (section 7.57): a single continuous
+                // law replaces the fixed +adapt_rate / -adapt_rate*leak_ratio
+                // pair -- magnitude above dead_band grows k1 proportionally
+                // (noise-sized excess -> small nudge, real disturbance -> fast
+                // growth), magnitude below dead_band decays it proportionally
+                // to how quiet the signal actually is.
+                // 比例成長/漏洩（§7.57）: 固定+adapt_rate/-adapt_rate*leak_ratioの
+                // 組を単一の連続則へ置き換える——dead_band超過分に比例して
+                // 成長（ノイズ級の超過→小さな押し上げ、真の外乱→速い成長）、
+                // dead_band未満では信号の静かさに比例して漏洩。
+                k1_dot = prop_adapt_gain * (fabsf(s_lpf) - dead_band);
             } else if (fabsf(s_lpf) > dead_band) {
                 k1_dot = adapt_rate;
             } else {
@@ -390,6 +463,8 @@ struct AdaptiveSuperTwisting {
         rate_model       = 0;
         e_model_env      = 0;
         e_model_env_base = 0;
+        e_energy_fast     = 0;
+        e_energy_slow     = 0;
         mref_dwell_timer = 0;
         predictor_state    = 0;
         predictor_lead     = 0;

@@ -1016,6 +1016,8 @@ namespace param_vars {
     float smc_pos_asta_velx_z_leak_tau = 0.5f;
     float smc_pos_asta_velx_predictor_tau_m = 0.0f;
     float smc_pos_asta_velx_predictor_leak_tau = 0.5f;
+    float smc_pos_asta_velx_prop_adapt_gain = 0.0f;      // §7.57, opt-in structural redesign, 0=legacy bang-bang
+    float smc_pos_asta_velx_energy_trend_floor = 0.0f;   // §7.57, opt-in structural redesign, 0=legacy amplitude-envelope gate
     float smc_pos_asta_vely_k1_init = 0.6f;
     float smc_pos_asta_vely_k1_min = 0.3f;   // tuned 2026-09-13 (was 0.15, see plan section 7.51)
     float smc_pos_asta_vely_k1_max = 1.5f;
@@ -1037,6 +1039,8 @@ namespace param_vars {
     float smc_pos_asta_vely_z_leak_tau = 0.5f;
     float smc_pos_asta_vely_predictor_tau_m = 0.0f;
     float smc_pos_asta_vely_predictor_leak_tau = 0.5f;
+    float smc_pos_asta_vely_prop_adapt_gain = 0.0f;      // §7.57, opt-in structural redesign, 0=legacy bang-bang
+    float smc_pos_asta_vely_energy_trend_floor = 0.0f;   // §7.57, opt-in structural redesign, 0=legacy amplitude-envelope gate
 
     // Diagnostic/experimental slew-rate limit [m/s^2] on vx_sp/vy_sp before
     // it reaches smc_vel_x_/smc_vel_y_ -- see AppController::vsp_slew_max_'s
@@ -2064,6 +2068,8 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.velx.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_velx_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.predictor_tau_m", ParamType::FLOAT, &smc_pos_asta_velx_predictor_tau_m, 0.0f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.velx.predictor_leak_tau", ParamType::FLOAT, &smc_pos_asta_velx_predictor_leak_tau, 0.5f, 0.001f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.prop_adapt_gain", ParamType::FLOAT, &smc_pos_asta_velx_prop_adapt_gain, 0.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.velx.energy_trend_floor", ParamType::FLOAT, &smc_pos_asta_velx_energy_trend_floor, 0.0f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_init", ParamType::FLOAT, &smc_pos_asta_vely_k1_init, 0.6f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_min", ParamType::FLOAT, &smc_pos_asta_vely_k1_min, 0.3f, 0.0f, 1000.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.k1_max", ParamType::FLOAT, &smc_pos_asta_vely_k1_max, 1.5f, 0.0f, 1000.0f, &notifyControllerReload},
@@ -2085,6 +2091,8 @@ static const ParamEntry table[] = {
     {"smc_pos_asta.vely.z_leak_tau", ParamType::FLOAT, &smc_pos_asta_vely_z_leak_tau, 0.5f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.predictor_tau_m", ParamType::FLOAT, &smc_pos_asta_vely_predictor_tau_m, 0.0f, 0.0f, 2.0f, &notifyControllerReload},
     {"smc_pos_asta.vely.predictor_leak_tau", ParamType::FLOAT, &smc_pos_asta_vely_predictor_leak_tau, 0.5f, 0.001f, 10.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.prop_adapt_gain", ParamType::FLOAT, &smc_pos_asta_vely_prop_adapt_gain, 0.0f, 0.0f, 1000.0f, &notifyControllerReload},
+    {"smc_pos_asta.vely.energy_trend_floor", ParamType::FLOAT, &smc_pos_asta_vely_energy_trend_floor, 0.0f, 0.0f, 10.0f, &notifyControllerReload},
     {"smc_pos_asta.vel.sp_slew_max", ParamType::FLOAT, &smc_pos_asta_vel_sp_slew_max, 0.0f, 0.0f, 100.0f, &notifyControllerReload},
     // Sliding-mode horizontal-velocity-loop gains (firmware/apps/smc_pos) --
     // see the param_vars comment above for the seed derivation. Unused by
