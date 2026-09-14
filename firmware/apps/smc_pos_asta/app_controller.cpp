@@ -18,9 +18,14 @@
 #include "app_controller.hpp"
 #include "params.hpp"
 #include "sf_math.hpp"
+#include "esp_log.h"  // TEMPORARY diagnostic, §7.56続報2 -- remove with the posdiag probe below
 #include <algorithm>  // std::clamp (vsp_slew_max_ rate limiter, §7.54続報6)
 
 namespace sf::app {
+
+// TEMPORARY diagnostic tag (docs/plans/smc-rate-loop-plan.md §7.56続報2) -- see
+// posdiag_counter_'s doc comment in app_controller.hpp.
+static const char* TAG = "SMC_POS_ASTA";
 
 // X-quad spec inertia Ixx/Iyy/Izz [kg*m^2] -- same value and same caveat as
 // firmware/apps/smc_pos_sta/app_controller.cpp's kInertia.
@@ -84,6 +89,24 @@ void AppController::init()
             }
             ax_ned = smc_vel_x_.compute(vx_target, vx, dt);
             ay_ned = smc_vel_y_.compute(vy_target, vy, dt);
+
+            // TEMPORARY diagnostic (§7.56続報2): is smc_vel_y_'s own adaptive k1
+            // what self-activates during the long-hold "3rd loop" symptom? Same
+            // 0.05s decimation convention as pid_controller.cpp's posdiag A/B.
+            // 一時診断（§7.56続報2）: smc_vel_y_自身の適応k1が、長時間保持の
+            // 「第3のループ」症状で自己活性化しているか。pid_controller.cppの
+            // posdiag A/Bと同じ0.05s間引き規約。
+            if (++posdiag_counter_ >= 20) {
+                posdiag_counter_ = 0;
+                ESP_LOGI(TAG, "posdiag E k1=%.4f e_model_env=%.4f e_model_env_base=%.4f "
+                         "z=%.4f s_lpf=%.4f ay_ned=%.4f vy=%.4f",
+                         static_cast<double>(smc_vel_y_.k1),
+                         static_cast<double>(smc_vel_y_.e_model_env),
+                         static_cast<double>(smc_vel_y_.e_model_env_base),
+                         static_cast<double>(smc_vel_y_.z),
+                         static_cast<double>(smc_vel_y_.s_lpf),
+                         static_cast<double>(ay_ned), static_cast<double>(vy));
+            }
         });
 }
 

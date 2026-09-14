@@ -156,6 +156,17 @@ private:
     float vsp_slew_max_ = 0.0f;
     float vx_sp_limited_ = 0.0f;
     float vy_sp_limited_ = 0.0f;
+
+    // TEMPORARY diagnostic (docs/plans/smc-rate-loop-plan.md §7.56続報2): decimation
+    // counter for a k1/e_model_env ESP_LOGI probe on smc_vel_y_, to check whether the
+    // adaptive law's own k1 is what self-activates during the long-hold "3rd loop"
+    // symptom (§7.56続報: ay_ned/roll_sp rms grows ~1.56x over 40s while vy_est itself
+    // does not). Remove after the measurement.
+    // 一時診断（§7.56続報2）: smc_vel_y_のk1/e_model_envをESP_LOGIで観測する間引き
+    // カウンタ——長時間保持の「第3のループ」症状（§7.56続報: ay_ned/roll_spのrmsが
+    // 40秒でvy_est自体は伸びないまま約1.56倍に成長）が、適応則自身のk1の自己活性化
+    // によるものかを確認する。調査後に削除する。
+    int posdiag_counter_ = 0;
 };
 
 }  // namespace sf::app
