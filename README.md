@@ -41,7 +41,7 @@
   - 両アプリが共有する経路（ヘディングホールド機構`attitude.yawhold`、ESKFのヨー推定——`eskf.use_mag=0`のためジャイロ積分のみで絶対方位基準がない、モータ/プロペラの個体差によるヨートルク偏り等）に原因がある可能性を検討中
   - 未解決・調査継続中の項目
 
-## 制御構造（smc_pos_asta、水平チャンネル）
+## 制御構造（smc_pos_asta、水平チャンネル）— 2026-09-14改訂
 
 `smc_pos_asta`（位置/速度ループも適応STA化した拡張版アプリ、§7.54系列で実機投入）の水平（x, y）
 チャンネルは、位置→速度→姿勢角→レートの4段カスケードのうち**速度ループとレートループだけ**が
@@ -49,21 +49,30 @@
 無改造のPIDのまま。高度（z）チャンネルはこの図に含まれない——構造的に並行するPIDループだが、
 SMC化の対象外（`altitude.vel.kp`のゲイン再調整のみ、§7.54続報9）。
 
+**この図は「無改造」を一枚岩に扱わない**——位置ループは他の無改造ブロック（姿勢角・ミキサー）とは
+性質が異なる。姿勢角・ミキサーは「まだ手を付けていないだけ」だが、**位置ループは意図的にロック
+されている**: 2026-06-22の実機初飛行で成長する不安定振動→壁激突を起こし、原因はモータ/プロペラの
+トルク効き不足（実測0.4〜0.7倍）という**ハードウェア限界**と実機同定で確定済み（
+[`firmware/vehicle/docs/poshold_journey.md`](firmware/vehicle/docs/poshold_journey.md) §4）。
+2026-09-14に改めてこの位置ループのゲインを探索したが（[`smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md)
+§7.55）、当時実機を発散させた`kp=1.0`と同じ危険域を再発見しただけに終わり、**このハード限界を
+超える改善策は現時点で存在しない**——`±6〜7cm`が本機体のPOS_HOLD精度の実用上限。
+
 ```mermaid
 flowchart LR
     CMD["位置指令"] --> SUM1((Σ))
     subgraph OUTER["外側ループ：並進（位置→速度）"]
         direction LR
-        SUM1 --> POS["位置ループ<br/>PID（無改造）"]
+        SUM1 --> POS["位置ループ<br/>PID（意図的にロック<br/>ハード限界±6-7cm）"]
         POS --> SUM2((Σ))
-        SUM2 --> VEL["速度ループ<br/>適応STA＋Smith予測器"]
+        SUM2 --> VEL["速度ループ<br/>適応STA＋Smith予測器<br/>実機検証済み"]
     end
     VEL -->|目標姿勢角| SUM3((Σ))
     subgraph INNER["内側ループ：回転（姿勢角→レート）"]
         direction LR
         SUM3 --> ATT["姿勢角ループ<br/>PID（無改造）"]
         ATT --> SUM4((Σ))
-        SUM4 --> RATE["レートループ<br/>適応STA＋Smith予測器"]
+        SUM4 --> RATE["レートループ<br/>適応STA＋Smith予測器<br/>実機検証済み"]
     end
     RATE --> MIX["ミキサー<br/>無改造"]
     MIX --> PLANT["機体＋ESKF推定"]
@@ -73,10 +82,22 @@ flowchart LR
     PLANT -. 状態フィードバック .-> SUM4
 
     classDef pid fill:#eee,stroke:#888,color:#333
+    classDef locked fill:#f7d7d7,stroke:#c0392b,color:#5a1a1a
     classDef sta fill:#f5c4b3,stroke:#d85a30,color:#4a1b0c
-    class POS,ATT,MIX,PLANT pid
+    class ATT,MIX,PLANT pid
+    class POS locked
     class VEL,RATE sta
 ```
+
+凡例: 灰＝無改造PID（既知の課題なし）／**赤＝無改造PID（意図的にロック、ハード限界につき変更禁止）**／
+橙＝適応STA＋Smith予測器（実機検証済み）。
+
+**実機検証状況（速度/レートループ、橙）**: Smith予測器の実測遅延ベースパラメータ
+（`predictor_tau_m`: roll 0.062・pitch 0.061・yaw 0.13・velx/vely 0.06）を投入した状態で、
+実機テレメトリにより**3回・計139秒の健全な飛行**（tilt_max 11〜13°、離着陸時の接地事故2件は
+制御則と無関係と切り分け済み）を確認済み（§7.54続報13）。ただし`smc_pos_asta`自体は依然
+**実験的なapp**であり、デフォルトの本番コントローラは既定PID（`vehicle`ターゲット）のまま
+——速度/レートループへのSTA化は「有望で実証済みの選択肢」だが「標準採用」の決定はまだしていない。
 
 Smith予測器（コーラル色の2ブロック内部）は、各軸自身の前サイクル指令を1次遅れモデルに通して
 「まだ測定値に現れていない分」を予測し、前方積分してリーキーウォッシュアウトを掛けたうえで
@@ -84,6 +105,15 @@ Smith予測器（コーラル色の2ブロック内部）は、各軸自身の�
 ゲインを下げずに補償する（詳細は[`docs/plans/smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md)
 §7.54続報4/7-10、実装は
 [`adaptive_sliding_mode_sta.hpp`](firmware/apps/smc_pos_asta/adaptive_sliding_mode_sta.hpp)）。
+
+**なぜこの構成が「提案」なのか（速度/レート＝置き換え、位置=ロック、姿勢角/ミキサー=無改造のまま）**:
+本計画全体を通じて確立した経験則は、「制御則を精緻化すればするほど頑健になる」わけではなく、
+**遅延・ゲイン権限不足という物理的な制約を明示的にモデル化して補償した箇所だけが実際に改善する**、
+というもの（[`smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md)の現状サマリ#4参照）。
+速度/レートループはアクチュエータ遅延（約60ms）という明確な遅延要因があり、Smith予測器での
+補償が数値的にもテレメトリ的にも効果を示した。位置ループの限界はゲインでなくモータ/プロペラの
+物理的なトルク不足であり、制御則側でこれ以上手を出す根拠がない——姿勢角・ミキサーは、今のところ
+このような明確な物理的制約の証拠が見つかっていない層であり、優先度の高い次の投資先ではない。
 
 ## 関連ドキュメント
 
@@ -171,7 +201,7 @@ Following this verification, `smc_rate_asta` was flashed to a real StampFly for 
     torque imbalance
   - Unresolved, investigation ongoing
 
-## Control Structure (smc_pos_asta, horizontal channel)
+## Control Structure (smc_pos_asta, horizontal channel) — revised 2026-09-14
 
 In `smc_pos_asta` (the extended app that also puts the velocity/position loops on adaptive STA,
 deployed to real hardware in the §7.54 series), the horizontal (x, y) channel's 4-stage cascade
@@ -181,21 +211,32 @@ plant/ESKF state estimation are all still unmodified PID. The altitude (z) chann
 here — it is a structurally parallel PID loop, but out of scope for the SMC conversion (only
 `altitude.vel.kp` was retuned, §7.54続報9).
 
+**"Unmodified" is not one uniform state in this diagram.** The position loop differs in kind from
+the other unmodified blocks (attitude, mixer): those are simply "not touched yet," while the
+**position loop is deliberately locked**. A 2026-06-22 first real POS_HOLD flight diverged into a
+growing unstable oscillation and hit a wall; real-hardware system identification pinned the cause
+to a **hardware limit** — motor/propeller torque authority measured at only 0.4-0.7x nominal (see
+[`firmware/vehicle/docs/poshold_journey.md`](firmware/vehicle/docs/poshold_journey.md) §4). A fresh
+gain search on this same loop on 2026-09-14
+([`smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md) §7.55) only rediscovered the same
+danger zone around that `kp=1.0` value — **no control-side fix beats this hardware ceiling today**.
+`±6-7cm` is this airframe's practical POS_HOLD accuracy limit.
+
 ```mermaid
 flowchart LR
     CMD["Position command"] --> SUM1((Σ))
     subgraph OUTER["Outer loop: translation (position → velocity)"]
         direction LR
-        SUM1 --> POS["Position loop<br/>PID (unmodified)"]
+        SUM1 --> POS["Position loop<br/>PID (deliberately locked<br/>hardware limit ±6-7cm)"]
         POS --> SUM2((Σ))
-        SUM2 --> VEL["Velocity loop<br/>Adaptive STA + Smith predictor"]
+        SUM2 --> VEL["Velocity loop<br/>Adaptive STA + Smith predictor<br/>flight-validated"]
     end
     VEL -->|target attitude| SUM3((Σ))
     subgraph INNER["Inner loop: rotation (attitude → rate)"]
         direction LR
         SUM3 --> ATT["Attitude loop<br/>PID (unmodified)"]
         ATT --> SUM4((Σ))
-        SUM4 --> RATE["Rate loop<br/>Adaptive STA + Smith predictor"]
+        SUM4 --> RATE["Rate loop<br/>Adaptive STA + Smith predictor<br/>flight-validated"]
     end
     RATE --> MIX["Mixer<br/>unmodified"]
     MIX --> PLANT["Plant + ESKF estimate"]
@@ -205,10 +246,23 @@ flowchart LR
     PLANT -. state feedback .-> SUM4
 
     classDef pid fill:#eee,stroke:#888,color:#333
+    classDef locked fill:#f7d7d7,stroke:#c0392b,color:#5a1a1a
     classDef sta fill:#f5c4b3,stroke:#d85a30,color:#4a1b0c
-    class POS,ATT,MIX,PLANT pid
+    class ATT,MIX,PLANT pid
+    class POS locked
     class VEL,RATE sta
 ```
+
+Legend: grey = unmodified PID (no known issue) / **red = unmodified PID (deliberately locked, do not
+retune — hardware limit)** / coral = adaptive STA + Smith predictor (flight-validated).
+
+**Real-hardware status (velocity/rate loops, coral)**: with the Smith predictor's measured-delay
+parameters live (`predictor_tau_m`: roll 0.062 / pitch 0.061 / yaw 0.13 / velx/vely 0.06), real
+telemetry confirmed **3 healthy flights totaling 139s** (tilt_max 11-13°; two ground-contact
+incidents during takeoff/landing were traced to something unrelated to the control law) — section
+7.54 follow-up 13. `smc_pos_asta` itself is still an **experimental app**, though: the default
+production controller remains the stock PID (`vehicle` target) — STA on the velocity/rate loops is
+a proven, promising option, not yet a decided standard.
 
 The Smith predictor (inside the two coral blocks) runs each axis's own previous-cycle command
 through a 1st-order lag model to predict how much of it has not yet shown up in the measurement,
@@ -218,6 +272,16 @@ reaching-law gains (see
 [`docs/plans/smc-rate-loop-plan.md`](docs/plans/smc-rate-loop-plan.md) §7.54続報4/7-10; implementation
 in
 [`adaptive_sliding_mode_sta.hpp`](firmware/apps/smc_pos_asta/adaptive_sliding_mode_sta.hpp)).
+
+**Why this shape (replace velocity/rate, lock position, leave attitude/mixer alone)**: the
+consistent lesson across this whole plan is that refining a control law does not, by itself, make
+it more robust — **only the loops where a real physical constraint (delay, gain authority) was
+explicitly modeled and compensated actually improved** (see the parent plan's current-state summary
+item 4). The velocity/rate loops had a clear delay to compensate (~60ms actuator lag), and the
+Smith predictor helped both numerically and on real telemetry. The position loop's limit is not a
+gain problem but a physical torque deficit — there is no remaining case for pushing further there.
+Attitude and the mixer are, so far, layers with no comparable documented physical constraint, so
+they are not the next priority for investment.
 
 ## Related Documents
 
